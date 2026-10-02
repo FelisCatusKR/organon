@@ -145,14 +145,18 @@ list is computed for every request."
 
 (defun organon-fresh-buffer (file)
   "Return a buffer visiting FILE whose contents match the file on disk.
-A clean buffer whose file changed is re-read; a modified one is a conflict."
+A clean buffer whose file changed is re-read, or dropped if the file is gone;
+a modified one is a conflict."
   (let ((buf (get-file-buffer file)))
     (when (and buf (not (verify-visited-file-modtime buf)))
       (with-current-buffer buf
         (when (buffer-modified-p)
           (organon-signal "conflict" (format "%s changed on disk while it had unsaved edits"
                                              (organon-relative-path file))))
-        (revert-buffer t t t)))
+        (if (file-exists-p file)
+            (revert-buffer t t t)
+          (kill-buffer buf)
+          (setq buf nil))))
     (or buf (find-file-noselect file))))
 
 (defun organon-relative-path (file)

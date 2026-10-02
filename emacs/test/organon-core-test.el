@@ -79,6 +79,19 @@
       (with-current-buffer (organon-fresh-buffer file)
         (should (string-match-p "added outside" (buffer-string)))))))
 
+;; A file the engine has open may be moved away or deleted by the user.
+(ert-deftest organon-core/deleted-file-is-recreated ()
+  "data-integrity: External edits are picked up (file removed)."
+  (organon-test-with-instance "basic" "2026-10-02 05:29:00"
+    (let ((file (organon-test-file "org/tasks/inbox.org")))
+      (organon-test-result "task.create" '((title . "Before")))
+      (delete-file file)
+      (let ((task (organon-test-result "task.create" '((title . "After")))))
+        (should (equal (alist-get 'title task) "After")))
+      (should (file-exists-p file))
+      (should-not (string-match-p "Before" (organon-test-file-string "org/tasks/inbox.org")))
+      (should (= (organon-test-heading-count "org/tasks/inbox.org") 1)))))
+
 (ert-deftest organon-core/external-edit-of-modified-buffer-is-conflict ()
   (organon-test-with-instance "basic" "2026-10-02 05:29:00"
     (let ((file (organon-test-file "org/tasks/inbox.org")))
