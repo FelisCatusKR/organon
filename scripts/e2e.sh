@@ -119,9 +119,13 @@ if [[ "${1:-}" == ctl ]]; then
   case "$verb" in
     pause-engine)   cli pause "$(engine_name)" >/dev/null ;;
     unpause-engine) cli unpause "$(engine_name)" >/dev/null ;;
-    kill-engine)    cli kill "$(engine_name)" >/dev/null ;;
+    kill-engine)
+      # `kill` returns before the container has stopped; a start issued in that
+      # window finds it still running and does nothing.
+      cli kill "$(engine_name)" >/dev/null
+      cli wait "$(engine_name)" >/dev/null ;;
     start-engine)
-      if [[ "$runtime" == compose ]]; then compose up -d engine >/dev/null 2>&1
+      if [[ "$runtime" == compose ]]; then compose up -d engine >/dev/null
       else cli start "$(engine_name)" >/dev/null; fi
       wait_engine ;;
     recreate)       stack_down; stack_up ;;
