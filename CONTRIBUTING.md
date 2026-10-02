@@ -21,7 +21,9 @@ Behavior is specified with [OpenSpec](https://github.com/Fission-AI/OpenSpec) in
 - `openspec/specs/<capability>/spec.md`: how the system behaves today
 - `openspec/changes/<change>/`: a proposed change (proposal, design, spec deltas, tasks)
 
-A change that alters behavior comes with a spec delta. To change the HTTP API, edit `api/openapi.yaml` and run
+A change that alters behavior comes with a spec delta. When all its tasks are done, **archive it as the last
+commit of the pull request** (`openspec archive <name>` or `/opsx:archive`) so that reviewers see the merged
+specs; CI fails while a finished change is left unarchived. To change the HTTP API, edit `api/openapi.yaml` and run
 `mise run generate`: the Go types in `api/internal/model/model.gen.go` are generated from it (never edit them
 by hand; CI fails if they are out of date). **Every scenario in a spec has at least one test**
 that names it, either in a docstring (Elisp) or a comment (Go). Design rationale lives in
@@ -32,7 +34,7 @@ that names it, either in a docstring (Elisp) or a comment (Go). Design rationale
 | Level | Who | What |
 |---|---|---|
 | **L1** | you, before opening a PR | the commands below |
-| **L2** | CI, required to merge | specs + OpenAPI lint + generated-type drift check + Quadlet dry run, unit tests and ERT on amd64 and arm64, e2e under Docker Compose and rootless Podman (also as UID 12345) |
+| **L2** | CI, required to merge | specs (including: finished changes are archived) + OpenAPI lint + generated-type drift check + Quadlet dry run, unit tests and ERT on amd64 and arm64, e2e under Docker Compose and rootless Podman (also as UID 12345) |
 | **L3** | maintainer, before a release | real deployment with Quadlet + systemd |
 
 You don't need Podman, systemd or an arm64 machine: if L1 passes and CI is green, you're done.

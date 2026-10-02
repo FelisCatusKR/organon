@@ -14,6 +14,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Decides whether the expensive jobs need to run. Documentation and spec-only
+  # changes (docs/, openspec/, .claude/, *.md, LICENSE) run only `contracts`.
+  # Jobs are skipped with `if:` rather than path filters on the workflow, so that
+  # required checks report "skipped" (which counts as passing) instead of
+  # staying pending. The comparison is against the PR base, so a docs-only
+  # commit on top of a code PR still runs everything.
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "$BASE" HEAD)
+          echo "$changed"
+          if grep -qvE '^(docs/|openspec/|\.claude/)|\.md$|^LICENSE$' <<<"$changed"; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   contracts:
     name: specs, OpenAPI, Quadlet
     runs-on: ubuntu-24.04
@@ -21,6 +50,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
       - run: mise run spec:validate
+      - name: Finished OpenSpec changes are archived
+        run: mise run spec:check-archived
       - run: mise run lint:openapi
       - name: Generated Go types match the contract
         run: mise run check:generated
@@ -31,6 +62,8 @@ jobs:
 
   unit:
     name: unit (${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +74,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
+      - name: gofmt
+        working-directory: api
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w on the files above" >&2; exit 1; }
       - name: go vet
         working-directory: api
         run: go vet ./... && go vet -tags e2e ./e2e/
@@ -52,6 +88,8 @@ jobs:
 
   e2e:
     name: e2e ${{ matrix.runtime }} (${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
