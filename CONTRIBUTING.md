@@ -30,6 +30,11 @@ deltas can still be revised. Once the pull request is approved, **archive the ch
 unarchived, and blocks the merge. An archive-only commit does not re-run the tests: CI skips unit and e2e for
 a code tree that already passed. Working alone, you can push the archive together with the last code commit.
 
+Pull requests are merged with a merge commit; squash and rebase merges are turned off. The commits of a pull
+request therefore land as they are, so make each one meaningful (proposal, implementation, archive) rather
+than squashing them yourself. `git log --first-parent main` shows one entry per pull request, and
+`git revert -m 1 <merge>` undoes one.
+
 Tasks list only work you can verify yourself (a test, a command, a file). Do not add "CI is green" or
 "the PR run shows ...": CI is already required to merge, and a change is archived before it merges.
 
