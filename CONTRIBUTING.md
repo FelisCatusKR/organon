@@ -5,6 +5,8 @@ states, repeaters, agenda membership, deadline warnings, IDs and backlinks belon
 code is an adapter that exposes them safely. If you find yourself writing a parser or computing a date,
 stop and look for the Org function that already does it.
 
+Security problems are reported privately, not as issues: see [SECURITY.md](SECURITY.md).
+
 ## What you need
 
 - [mise](https://mise.jdx.dev/) (installs the pinned Go, Node, OpenSpec CLI and Redocly from `mise.toml`)
