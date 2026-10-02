@@ -1,6 +1,6 @@
 ;;; organon-essentials-test.el --- Editing, reopening, listing, projects  -*- lexical-binding: t; -*-
 
-;; Scenarios: openspec/changes/task-essentials/specs/{task-lifecycle,
+;; Scenarios: openspec/specs/{task-lifecycle,
 ;; task-listing,projects}.  Fixture: tests/fixtures/essentials.
 ;; Clocks are UTC: "2026-10-02 05:29:00" is 14:29 in Asia/Seoul.
 

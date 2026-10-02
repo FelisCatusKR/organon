@@ -28,7 +28,10 @@ deltas can still be revised. Once the pull request is approved, **archive the ch
 (`openspec archive <name>` or `/opsx:archive`), so that what merges includes the updated
 `openspec/specs/`. The `openspec: changes archived` check stays red while a finished change is left
 unarchived, and blocks the merge. An archive-only commit does not re-run the tests: CI skips unit and e2e for
-a code tree that already passed. Working alone, you can push the archive together with the last code commit.
+a code tree that already passed, which holds only if every file the archive commit changes is under
+`openspec/`. Fix code comments that point at the change's old path in a separate commit or pull request:
+even a comment change in `emacs/` or `api/` changes the tree and re-runs everything. Working alone, you can
+push the archive together with the last code commit.
 
 Pull requests are merged with a merge commit; squash and rebase merges are turned off. The commits of a pull
 request therefore land as they are, so make each one meaningful (proposal, implementation, archive) rather
