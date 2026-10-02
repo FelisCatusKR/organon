@@ -19,6 +19,12 @@
 .idea/
 .vscode/
 
+# Quick-start data and tokens (README) live next to compose.yaml
+/data/
+/tokens
+
 # Local env overrides
 .env
+.env.*
+!.env.example
 compose.override.yaml

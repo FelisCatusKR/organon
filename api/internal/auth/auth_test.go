@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -71,5 +72,31 @@ func TestFailureLimiter(t *testing.T) {
 	now = now.Add(time.Minute)
 	if l.Blocked("1.2.3.4") {
 		t.Fatal("still blocked in the next window")
+	}
+}
+
+func TestFailureLimiterIsBounded(t *testing.T) {
+	now := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
+	l := NewFailureLimiter(1, time.Minute)
+	l.Now = func() time.Time { return now }
+	for i := 0; i < 3*maxEntries; i++ {
+		l.Blocked(fmt.Sprint("ok-", i))
+	}
+	if len(l.entries) != 0 {
+		t.Fatalf("Blocked recorded %d entries", len(l.entries))
+	}
+	l.Fail("first")
+	for i := 0; i < maxEntries+100; i++ {
+		now = now.Add(time.Millisecond)
+		l.Fail(fmt.Sprint("bad-", i))
+	}
+	if len(l.entries) > maxEntries {
+		t.Fatalf("%d entries, want at most %d", len(l.entries), maxEntries)
+	}
+	if l.Blocked("first") {
+		t.Fatal("oldest entry was not evicted")
+	}
+	if !l.Blocked(fmt.Sprint("bad-", maxEntries+99)) {
+		t.Fatal("newest entry was evicted")
 	}
 }
