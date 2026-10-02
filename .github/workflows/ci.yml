@@ -9,9 +9,12 @@ on:
 permissions:
   contents: read
 
+# Superseded pull request runs are cancelled. Runs on main are not: each commit
+# that passes is published as an image (see `publish`), and cancelling one
+# halfway would leave pushed digests without tags.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Decides whether the expensive jobs need to run. Documentation and spec-only
@@ -115,3 +118,110 @@ jobs:
       - name: e2e as UID 12345
         if: matrix.runtime == 'podman'
         run: mise exec -- scripts/e2e.sh --runtime podman --uid 12345 -- -v
+
+  # Publishes every commit on main that passed CI to GHCR as one multi-arch
+  # image tagged `sha-<7>` and `main` (openspec/specs/deployment: Published
+  # images). Each architecture is built natively and pushed by digest; the
+  # digests are then merged into one manifest list. Pull requests, forks and
+  # commits whose unit or e2e jobs did not succeed never reach these jobs.
+  publish:
+    name: publish (${{ matrix.arch }})
+    needs: [contracts, unit, e2e]
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      github.repository == 'FelisCatusKR/organon' &&
+      needs.contracts.result == 'success' && needs.unit.result == 'success' &&
+      needs.e2e.result == 'success'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/feliscatuskr/organon
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        run: echo "value=main-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: container/Containerfile
+          platforms: linux/${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ steps.version.outputs.value }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+      - name: Export digest
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-manifest:
+    name: publish (manifest)
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/feliscatuskr/organon
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=main
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create the multi-arch manifest
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE@sha256:%s " *)
+      - name: Verify the published image
+        run: |
+          ref="$IMAGE:sha-${GITHUB_SHA::7}"
+          docker buildx imagetools inspect "$ref"
+          platforms=$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest}}' \
+            | jq -r '[.manifests[].platform | select(.os == "linux") | .architecture] | sort | join(",")')
+          test "$platforms" = "amd64,arm64" || { echo "platforms: $platforms" >&2; exit 1; }
+          test "$(docker buildx imagetools inspect "$IMAGE:main" --format '{{json .Manifest.Digest}}')" = \
+               "$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest.Digest}}')"
+          docker pull -q "$ref"
+          test "$(docker image inspect "$ref" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$GITHUB_SHA"
+          test "$(docker run --rm "$ref" organon version)" = "main-${GITHUB_SHA::7}"

@@ -6,7 +6,7 @@ After=organon-engine.service
 
 [Container]
 ContainerName=organon-api
-Image=ghcr.io/feliscatuskr/organon:latest
+Image=ghcr.io/feliscatuskr/organon:main
 Exec=organon serve
 UserNS=keep-id:uid=1000,gid=1000
 ReadOnly=true

@@ -57,7 +57,12 @@ Settings (environment variables or a `.env` file next to `compose.yaml`):
 | `ORGANON_UID` / `ORGANON_GID` | `1000` | Owner of the data directory. Docker runs as root otherwise and your files would become root-owned |
 | `ORGANON_BIND` / `ORGANON_PORT` | `127.0.0.1` / `8080` | Where the API listens on the host |
 | `ORGANON_CLIENT_IP_HEADER` | – | Header with the real client address behind a proxy, e.g. `CF-Connecting-IP`. Set it only when every request reaches the API through that proxy: the header is trusted as given (for `X-Forwarded-For`, its last entry) |
-| `ORGANON_IMAGE` | `ghcr.io/feliscatuskr/organon:latest` | Image to run |
+| `ORGANON_IMAGE` | `ghcr.io/feliscatuskr/organon:main` | Image to run (see below) |
+
+**Images.** There are no releases yet. Every commit on `main` that passes CI is published for amd64 and arm64
+as `ghcr.io/feliscatuskr/organon:sha-<7>` and moves the `:main` tag. `:main` is a **development build**, so to
+stay on a version you have tested, pin a `sha-` tag (for example `ORGANON_IMAGE=ghcr.io/feliscatuskr/organon:sha-1a2b3c4`).
+`organon version` inside a container prints the commit it was built from.
 
 **Rootless Podman.** Run the same commands with `podman compose`, or with `docker-compose` pointed at the
 Podman socket (`DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock`). Also set
