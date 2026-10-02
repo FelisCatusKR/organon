@@ -27,7 +27,9 @@ jobs:
   #   archive-only commit after review therefore costs no test run, while a
   #   moved base produces a different tree and runs everything again.
   # Caches written by pull requests are invisible to main, so a commit on main is
-  # always tested (and published) for real.
+  # always tested (and published) for real. Pull requests from forks never skip:
+  # their author controls the workflow file of earlier runs, so a cache entry
+  # from those runs proves nothing.
   # Jobs are skipped with `if:` rather than path filters on the workflow, so that
   # required checks report "skipped" (which counts as passing) instead of
   # staying pending.
@@ -62,7 +64,10 @@ jobs:
           echo "hash=$hash" >> "$GITHUB_OUTPUT"
           echo "code tree: $hash"
       - id: tested
-        if: steps.diff.outputs.code == 'true'
+        if: >-
+          steps.diff.outputs.code == 'true' &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .ci-tested
@@ -200,7 +205,10 @@ jobs:
   # image tagged `sha-<7>` and `main` (openspec/specs/deployment: Published
   # images). Each architecture is built natively and pushed by digest; the
   # digests are then merged into one manifest list. Pull requests, forks and
-  # commits whose unit or e2e jobs did not succeed never reach these jobs.
+  # commits whose unit or e2e jobs did not succeed never reach these jobs. Nor do
+  # commits whose unit and e2e were skipped (documentation only, or a code tree
+  # that already passed): the image would be the same, so `main` keeps pointing
+  # at it and such a commit gets no `sha-<7>` tag of its own.
   publish:
     name: publish (${{ matrix.arch }})
     needs: [contracts, unit, e2e]
