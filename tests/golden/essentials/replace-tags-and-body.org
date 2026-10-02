@@ -1,0 +1,43 @@
+#+title: Inbox
+
+* TODO Undated backlog
+:PROPERTIES:
+:ID:       44444444-4444-4444-8444-000000000001
+:END:
+* NEXT Pay the bill :bills:
+DEADLINE: <2026-10-25 Sun>
+:PROPERTIES:
+:ID:       44444444-4444-4444-8444-000000000002
+:END:
+* WAITING Reply from the ISP
+:PROPERTIES:
+:ID:       44444444-4444-4444-8444-000000000003
+:END:
+:LOGBOOK:
+- State "WAITING"    from "NEXT"       [2026-10-01 Thu 10:00]
+:END:
+* DONE Paid last month :bills:
+CLOSED: [2026-10-01 Thu 09:00]
+:PROPERTIES:
+:ID:       44444444-4444-4444-8444-000000000004
+:END:
+:LOGBOOK:
+- State "DONE"       from "NEXT"       [2026-10-01 Thu 09:00]
+:END:
+* CANCELLED Dropped plan
+CLOSED: [2026-09-30 Wed 09:00]
+:PROPERTIES:
+:ID:       44444444-4444-4444-8444-000000000005
+:END:
+* NEXT [#A] Scheduled with priority :home:
+SCHEDULED: <2026-10-05 Mon>
+:PROPERTIES:
+:ID:       44444444-4444-4444-8444-000000000006
+:END:
+new body
+,* looks like a heading
+* NEXT Monthly with a repeater
+DEADLINE: <2026-10-25 Sun +1m>
+:PROPERTIES:
+:ID:       44444444-4444-4444-8444-000000000007
+:END:
