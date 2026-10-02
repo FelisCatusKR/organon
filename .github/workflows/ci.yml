@@ -165,6 +165,25 @@ jobs:
         if: matrix.runtime == 'podman'
         run: mise exec -- scripts/e2e.sh --runtime podman --uid 12345 -- -v
 
+  # The one check to require in branch protection (together with
+  # "openspec: changes archived"). Matrix jobs that are skipped report under
+  # their unexpanded names ("unit (${{ matrix.arch }})"), so requiring the
+  # per-architecture names would block every docs-only or archive-only pull
+  # request. This job always runs and fails if any job it summarizes failed or
+  # was cancelled; success and skipped both pass.
+  required:
+    name: required checks
+    needs: [changes, contracts, unit, e2e]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          bad=$(echo "$RESULTS" | jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key] | join(", ")')
+          if [ -n "$bad" ]; then echo "not passing: $bad" >&2; exit 1; fi
+
   # Records that this code tree passed unit and e2e (see `changes`).
   mark-tested:
     needs: [changes, unit, e2e]
