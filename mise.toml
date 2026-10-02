@@ -5,3 +5,40 @@
 go = "1.27.1"
 node = "24.21.0"
 "npm:@fission-ai/openspec" = "1.14.0"
+"npm:@redocly/cli" = "2.57.0"
+
+# Developer tasks. `mise run test` is the L1 check (see CONTRIBUTING.md).
+[tasks.test]
+description = "L1: Elisp (ERT, in the test image) + Go unit tests"
+depends = ["test:go", "test:elisp"]
+
+[tasks."test:go"]
+description = "Go unit tests"
+dir = "api"
+run = "go test ./..."
+
+[tasks."test:elisp"]
+description = "ERT tests inside the container test image"
+run = "scripts/test-elisp.sh"
+
+[tasks.e2e]
+description = "End-to-end tests against a running stack (usage: mise run e2e -- --runtime podman)"
+run = "scripts/e2e.sh"
+
+[tasks."spec:validate"]
+description = "Validate OpenSpec specs and changes"
+run = "openspec validate --all --strict"
+
+[tasks."lint:openapi"]
+description = "Lint the HTTP contract"
+run = "redocly lint --format=stylish api/openapi.yaml"
+
+[tasks.generate]
+description = "Regenerate Go types from api/openapi.yaml"
+dir = "api"
+run = "go generate ./..."
+
+[tasks."check:generated"]
+description = "Fail if generated code is out of date with api/openapi.yaml"
+depends = ["generate"]
+run = "git diff --exit-code -- api/internal/model/model.gen.go || (echo 'model.gen.go is stale: run mise run generate and commit' >&2; exit 1)"

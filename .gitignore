@@ -1,0 +1,24 @@
+# Build output
+/api/bin/
+/api/organon
+/dist/
+
+# Local runtime data created by dev/e2e scripts
+/.dev/
+/tests/e2e/.work/
+
+# Emacs
+*.elc
+*.eln
+*~
+\#*\#
+.\#*
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local env overrides
+.env
+compose.override.yaml
