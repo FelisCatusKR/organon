@@ -23,9 +23,17 @@ Behavior is specified with [OpenSpec](https://github.com/Fission-AI/OpenSpec) in
 - `openspec/specs/<capability>/spec.md`: how the system behaves today
 - `openspec/changes/<change>/`: a proposed change (proposal, design, spec deltas, tasks)
 
-A change that alters behavior comes with a spec delta. When all its tasks are done, **archive it as the last
-commit of the pull request** (`openspec archive <name>` or `/opsx:archive`) so that reviewers see the merged
-specs; CI fails while a finished change is left unarchived. To change the HTTP API, edit `api/openapi.yaml` and run
+A change that alters behavior comes with a spec delta. Review happens on the unarchived change, so that spec
+deltas can still be revised. Once the pull request is approved, **archive the change as its last commit**
+(`openspec archive <name>` or `/opsx:archive`), so that what merges includes the updated
+`openspec/specs/`. The `openspec: changes archived` check stays red while a finished change is left
+unarchived, and blocks the merge. An archive-only commit does not re-run the tests: CI skips unit and e2e for
+a code tree that already passed. Working alone, you can push the archive together with the last code commit.
+
+Tasks list only work you can verify yourself (a test, a command, a file). Do not add "CI is green" or
+"the PR run shows ...": CI is already required to merge, and a change is archived before it merges.
+
+To change the HTTP API, edit `api/openapi.yaml` and run
 `mise run generate`: the Go types in `api/internal/model/model.gen.go` are generated from it (never edit them
 by hand; CI fails if they are out of date). **Every scenario in a spec has at least one test**
 that names it, either in a docstring (Elisp) or a comment (Go). Design rationale lives in
@@ -36,7 +44,7 @@ that names it, either in a docstring (Elisp) or a comment (Go). Design rationale
 | Level | Who | What |
 |---|---|---|
 | **L1** | you, before opening a PR | the commands below |
-| **L2** | CI, required to merge | specs (including: finished changes are archived) + OpenAPI lint + generated-type drift check + Quadlet dry run, unit tests (with the race detector) and ERT on amd64 and arm64, e2e under Docker Compose and rootless Podman (also as UID 12345) |
+| **L2** | CI, required to merge (`required checks` and `openspec: changes archived`) | specs + finished changes archived + OpenAPI lint + generated-type drift check + Quadlet dry run, unit tests (with the race detector) and ERT on amd64 and arm64, e2e under Docker Compose and rootless Podman (also as UID 12345) |
 | **L3** | maintainer, before a release | real deployment with Quadlet + systemd |
 
 You don't need Podman, systemd or an arm64 machine: if L1 passes and CI is green, you're done.
@@ -74,11 +82,10 @@ them: they are the expected Org output.
 Every commit on `main` that passes CI is published to GHCR by the `publish` jobs in
 `.github/workflows/ci.yml` (`:sha-<7>` and `:main`, amd64 and arm64). Pull requests never publish.
 
-One-time setup after the first publish: GitHub creates the package as **private**. Open the repository
-owner's profile → **Packages** → `organon` → **Package settings**, then:
-
-- **Change visibility** → Public
-- **Manage Actions access** → make sure this repository has write access
+The package inherits the repository's visibility through the image's source label, so a public repository
+gives a public package. If pulls ever fail anonymously, check the repository owner's profile → **Packages** →
+`organon` → **Package settings**: visibility, and **Manage Actions access** (this repository needs write
+access).
 
 ## License
 
