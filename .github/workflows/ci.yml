@@ -80,7 +80,9 @@ jobs:
       - name: go vet
         working-directory: api
         run: go vet ./... && go vet -tags e2e ./e2e/
-      - run: mise run test:go
+      - name: go test -race
+        working-directory: api
+        run: go test -race ./...
       - name: Build test image
         run: docker build -f container/Containerfile --target test -t organon:test .
       - name: ERT (inside the test image)

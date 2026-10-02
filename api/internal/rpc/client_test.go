@@ -49,9 +49,9 @@ func fakeEngine(t *testing.T, reply func(req map[string]any) string) string {
 }
 
 func TestCallDecodesResult(t *testing.T) {
-	var seen map[string]any
+	requests := make(chan map[string]any, 1)
 	path := fakeEngine(t, func(req map[string]any) string {
-		seen = req
+		requests <- req
 		return `{"id":"x","ok":true,"result":{"status":"ok"}}`
 	})
 	c := &Client{SocketPath: path, Timeout: time.Second}
@@ -62,6 +62,7 @@ func TestCallDecodesResult(t *testing.T) {
 	if out.Status != "ok" {
 		t.Fatalf("status = %q", out.Status)
 	}
+	seen := <-requests
 	if seen["method"] != "ping" {
 		t.Fatalf("method = %v", seen["method"])
 	}
