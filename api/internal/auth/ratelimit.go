@@ -26,35 +26,46 @@ func NewFailureLimiter(max int, window time.Duration) *FailureLimiter {
 	return &FailureLimiter{Max: max, Window: window, Now: time.Now, entries: map[string]*failures{}}
 }
 
-func (l *FailureLimiter) current(addr string) *failures {
-	now := l.Now()
-	e := l.entries[addr]
-	if e == nil || now.Sub(e.start) >= l.Window {
-		e = &failures{start: now}
-		l.entries[addr] = e
-	}
-	return e
-}
+// maxEntries bounds the number of addresses tracked at once.
+const maxEntries = 10000
 
 // Blocked reports whether addr has used up its failures for this window.
+// It never records anything, so successful requests cost no memory.
 func (l *FailureLimiter) Blocked(addr string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.current(addr).count >= l.Max
+	e := l.entries[addr]
+	return e != nil && l.Now().Sub(e.start) < l.Window && e.count >= l.Max
 }
 
 // Fail records a failed attempt from addr.
 func (l *FailureLimiter) Fail(addr string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.current(addr).count++
-	// Keep the map from growing without bound.
-	if len(l.entries) > 10000 {
-		now := l.Now()
-		for k, e := range l.entries {
-			if now.Sub(e.start) >= l.Window {
-				delete(l.entries, k)
-			}
+	now := l.Now()
+	e := l.entries[addr]
+	if e == nil || now.Sub(e.start) >= l.Window {
+		if e == nil && len(l.entries) >= maxEntries {
+			l.evict(now)
 		}
+		e = &failures{start: now}
+		l.entries[addr] = e
+	}
+	e.count++
+}
+
+// evict makes room for one entry: expired entries go first, then the
+// oldest one if every entry is still live.
+func (l *FailureLimiter) evict(now time.Time) {
+	var oldest string
+	for k, e := range l.entries {
+		if now.Sub(e.start) >= l.Window {
+			delete(l.entries, k)
+		} else if oldest == "" || e.start.Before(l.entries[oldest].start) {
+			oldest = k
+		}
+	}
+	if len(l.entries) >= maxEntries {
+		delete(l.entries, oldest)
 	}
 }
