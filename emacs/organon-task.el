@@ -188,6 +188,15 @@ drawers and body, not children).  Any change to the entry changes it."
                  (and ts (org-element-property :repeater-type ts))))
              '(:scheduled :deadline))))
 
+(defconst organon-task-states '("TODO" "NEXT" "DOING" "WAITING" "DONE" "CANCELLED")
+  "The workflow states of the HTTP contract (init.el, `org-todo-keywords').")
+
+(defun organon-task-state ()
+  "State of the heading at point if it is a task, else nil.
+A file may declare its own keywords with #+TODO:; headings using them are not
+tasks, because their state is outside the contract."
+  (car (member (org-get-todo-state) organon-task-states)))
+
 (defun organon-task-json ()
   "The task heading at point as a JSON-ready alist."
   (save-excursion
@@ -197,7 +206,7 @@ drawers and body, not children).  Any change to the entry changes it."
            (closed (org-element-property :closed headline)))
       `((id . ,(or (org-entry-get nil "ID") :null))
         (title . ,(org-get-heading t t t t))
-        (state . ,(or (org-get-todo-state) :null))
+        (state . ,(or (organon-task-state) :null))
         (priority . ,(if priority (char-to-string priority) :null))
         (tags . ,(vconcat (org-get-tags nil t)))
         (scheduled . ,(organon--timestamp-json (org-element-property :scheduled headline)))
@@ -225,7 +234,7 @@ drawers and body, not children).  Any change to the entry changes it."
     (with-current-buffer (marker-buffer marker)
       (save-excursion
         (goto-char marker)
-        (unless (org-get-todo-state)
+        (unless (organon-task-state)
           (organon-signal "not_found" "entry is not a task"))))
     (organon--task-json-at marker)))
 
@@ -321,7 +330,7 @@ retried request would otherwise move their dates twice)."
          (expected-version (organon-param-string params 'expected_version))
          (task
           (organon-with-entry id
-            (let ((current (org-get-todo-state))
+            (let ((current (organon-task-state))
                   (version (organon--entry-version)))
               (unless current
                 (organon-signal "not_found" "entry is not a task"))
@@ -417,7 +426,7 @@ copy any marker it keeps."
       (let ((task (with-current-buffer (marker-buffer marker)
                     (save-excursion
                       (goto-char marker)
-                      (let ((state (org-get-todo-state)))
+                      (let ((state (organon-task-state)))
                         (and state (not (member state org-done-keywords))
                              (organon-task-json)))))))
         (when (and task (not (member (alist-get 'id task) seen)))
@@ -436,7 +445,7 @@ copy any marker it keeps."
                (with-current-buffer (marker-buffer marker)
                  (save-excursion
                    (goto-char marker)
-                   (let ((state (org-get-todo-state)))
+                   (let ((state (organon-task-state)))
                      `((kind . ,kind)
                        (date . ,(organon-json-date ts-date))
                        (id . ,(or (org-entry-get nil "ID") :null))

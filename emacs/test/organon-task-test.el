@@ -135,6 +135,17 @@
       (should (equal (organon-test-result "agenda.day" '((date . "2026-10-02"))) []))
       (should-not (file-exists-p marker)))))
 
+(ert-deftest organon-task/surrounding-whitespace-is-not-kept ()
+  "task-lifecycle: Surrounding whitespace is not kept."
+  (organon-test-with-instance "basic" organon-test-clock
+    (let* ((task (organon-test-result "task.create"
+                                      '((title . "  Pay rent  ")
+                                        (body . "\n\n  indented\n\nlast  \n\n"))))
+           (stored (organon-test-result "task.get" `((id . ,(alist-get 'id task))))))
+      (dolist (result (list task stored))
+        (should (equal (alist-get 'title result) "Pay rent"))
+        (should (equal (alist-get 'body result) "  indented\n\nlast"))))))
+
 (ert-deftest organon-task/lisp-in-text-stays-text ()
   "api-access: Lisp in text fields stays text."
   (organon-test-with-instance "basic" organon-test-clock
@@ -175,6 +186,28 @@
     (should (equal (organon-test-error-code "task.get" '((id . "../../etc/passwd"))) "invalid"))
     ;; The project heading has an ID but is not a task.
     (should (equal (organon-test-error-code "task.get" `((id . ,organon-test-project-id))) "not_found"))))
+
+(ert-deftest organon-task/keyword-from-file-todo-line-is-not-a-task ()
+  "task-lifecycle: Keyword from a file's own TODO line."
+  (organon-test-with-instance "basic" organon-test-clock
+    (let ((id "11111111-2222-4333-8444-555555555555")
+          (file-precious-flag nil))
+      (with-temp-file (organon-test-file "org/tasks/custom.org")
+        (insert "#+TODO: WIP | FIN\n\n* WIP Draft\nSCHEDULED: <2026-10-02 Fri>\n"
+                ":PROPERTIES:\n:ID:       " id "\n:END:\n"))
+      (should (equal (organon-test-result "tasks.today" '((date . "2026-10-02"))) []))
+      (should (equal (organon-test-error-code "task.get" `((id . ,id))) "not_found"))
+      (should (equal (organon-test-error-code
+                      "task.transition"
+                      `((id . ,id) (action . "complete") (expected_state . "WIP")))
+                     "not_found"))
+      (let ((entries (organon-test-result "agenda.day" '((date . "2026-10-02")))))
+        (should (= (length entries) 1))
+        (should (equal (alist-get 'kind (aref entries 0)) "scheduled"))
+        (should (equal (alist-get 'id (aref entries 0)) id))
+        ;; JSON null decodes to nil; the key is still present.
+        (should (assq 'task (aref entries 0)))
+        (should-not (alist-get 'task (aref entries 0)))))))
 
 (ert-deftest organon-task/unknown-ids-rescan-only-after-changes ()
   "Repeated lookups of unknown IDs do not re-read the org directory each time."
