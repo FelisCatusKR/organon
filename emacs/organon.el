@@ -212,10 +212,26 @@ If FN fails, the buffer is reverted so no half-done change stays in memory."
 
 ;;;; IDs
 
+(defvar organon--id-scan-signature nil
+  "`organon--org-files-signature' as of the last full ID scan.")
+
+(defun organon--id-files ()
+  (organon-org-files "tasks" "projects" "archive" "knowledge" "journal"))
+
+(defun organon--org-files-signature (files)
+  "Names, sizes and modification times of FILES: cheap to compute, and it
+changes whenever a file is added, removed, moved or written."
+  (mapcar (lambda (file)
+            (let ((attrs (file-attributes file)))
+              (list file (file-attribute-size attrs) (file-attribute-modification-time attrs))))
+          files))
+
 (defun organon-update-id-locations ()
   "Rebuild the ID index from every file in the org directory."
-  (let ((inhibit-message t))
-    (org-id-update-id-locations (organon-org-files "tasks" "projects" "archive" "knowledge" "journal") t)))
+  (let ((inhibit-message t)
+        (files (organon--id-files)))
+    (org-id-update-id-locations files t)
+    (setq organon--id-scan-signature (organon--org-files-signature files))))
 
 (defun organon--find-id-1 (id)
   (let ((file (and (hash-table-p org-id-locations) (gethash id org-id-locations))))
@@ -232,11 +248,14 @@ If FN fails, the buffer is reverted so no half-done change stays in memory."
 
 (defun organon-find-id (id)
   "Return a marker at the heading whose ID property is ID.
-Looks in the ID index first; on a miss rescans once (a file may have moved
-while the engine was stopped), then fails with not_found."
+Looks in the ID index first; on a miss rescans once if any file changed since
+the last scan (a heading may have moved), then fails with not_found.  Without
+that check every unknown ID would re-read the whole org directory."
   (or (organon--find-id-1 id)
-      (progn (organon-update-id-locations)
-             (organon--find-id-1 id))
+      (unless (equal (organon--org-files-signature (organon--id-files))
+                     organon--id-scan-signature)
+        (organon-update-id-locations)
+        (organon--find-id-1 id))
       (organon-signal "not_found" (format "no entry with id %s" id))))
 
 (defmacro organon-with-entry (id &rest body)

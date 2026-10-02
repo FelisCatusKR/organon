@@ -104,7 +104,15 @@
 
 ;;;; Engine
 
-(require 'organon)
+;; organon.el advises the prompt primitives (read-string, yes-or-no-p, ...).
+;; Natively compiled callers, such as Debian's files.el, call primitives
+;; directly and only see the advice through a trampoline.  site-start.el
+;; disables trampolines so that nothing else compiles one at runtime; enable
+;; them while organon.el installs its advice.  build.el compiles these
+;; trampolines ahead of time into eln/, where they are found here.
+(defvar native-comp-enable-subr-trampolines)
+(let ((native-comp-enable-subr-trampolines t))
+  (require 'organon))
 (require 'organon-task)
 
 ;;; init.el ends here

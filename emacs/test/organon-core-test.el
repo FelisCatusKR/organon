@@ -66,6 +66,13 @@
     (organon-test--with-temp-method "test.read" (lambda (_) (read-string "Name: "))
       (should (equal (organon-test-error-code "test.read") "prompt_blocked")))))
 
+(ert-deftest organon-core/prompt-primitives-have-trampolines ()
+  "Natively compiled callers (files.el) reach the advised prompt primitives."
+  (skip-unless (native-comp-available-p))
+  (dolist (fn organon--prompt-functions)
+    (when (subr-primitive-p (advice--cd*r (symbol-function fn)))
+      (should (gethash fn comp-installed-trampolines-h)))))
+
 (ert-deftest organon-core/external-edit-of-clean-buffer-is-picked-up ()
   "data-integrity: External edits are picked up (engine level)."
   (organon-test-with-instance "basic" "2026-10-02 05:29:00"
