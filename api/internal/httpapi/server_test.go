@@ -151,6 +151,8 @@ func TestMissingTokenIsRejectedBeforeEngine(t *testing.T) {
 
 // api-access: Health without token
 func TestHealthNeedsNoToken(t *testing.T) {
+	defer func(d time.Duration) { healthCacheFor = d }(healthCacheFor)
+	healthCacheFor = 0
 	engine, h := newTestServer(t)
 	if res := do(t, h, "GET", "/healthz", "", ""); res.status != 200 || res.body["status"] != "ok" {
 		t.Fatalf("got %d %s", res.status, res.raw)
@@ -161,6 +163,32 @@ func TestHealthNeedsNoToken(t *testing.T) {
 	if res := do(t, h, "GET", "/healthz", "", ""); res.status != 503 || res.body["code"] != "engine_unavailable" ||
 		strings.Contains(res.raw, "organon.json") {
 		t.Fatalf("got %d %s", res.status, res.raw)
+	}
+}
+
+func TestHealthReusesRecentPing(t *testing.T) {
+	engine, h := newTestServer(t)
+	pings := 0
+	engine.answers["ping"] = func(map[string]any) (any, error) { pings++; return map[string]any{"status": "ok"}, nil }
+	for i := 0; i < 5; i++ {
+		if res := do(t, h, "GET", "/healthz", "", ""); res.status != 200 {
+			t.Fatalf("got %d %s", res.status, res.raw)
+		}
+	}
+	if pings != 1 {
+		t.Fatalf("%d engine pings for 5 health checks within a second", pings)
+	}
+}
+
+func TestResponsesAreNotCached(t *testing.T) {
+	_, h := newTestServer(t)
+	for _, res := range []result{
+		do(t, h, "GET", "/api/v1/meta", readToken, ""),
+		do(t, h, "GET", "/api/v1/meta", "", ""),
+	} {
+		if res.header.Get("Cache-Control") != "no-store" || res.header.Get("X-Content-Type-Options") != "nosniff" {
+			t.Fatalf("%d: headers %v", res.status, res.header)
+		}
 	}
 }
 
@@ -223,6 +251,37 @@ func TestClientIPHeaderIgnoresNonAddresses(t *testing.T) {
 	do(t, h, "GET", "/api/v1/meta", "wrong", "", "X-Forwarded-For", "198.51.100.1, 203.0.113.9")
 	if res := do(t, h, "GET", "/api/v1/meta", "wrong", "", "X-Forwarded-For", "198.51.100.2, 203.0.113.9"); res.status != 429 {
 		t.Fatalf("spoofed first entry: %d", res.status)
+	}
+}
+
+func TestClientKeyFromProxyHeader(t *testing.T) {
+	s := &Server{ClientIPHeader: "X-Forwarded-For"}
+	for _, c := range []struct {
+		values []string
+		want   string
+	}{
+		{[]string{"203.0.113.9"}, "203.0.113.9"},
+		{[]string{"203.0.113.9:443"}, "203.0.113.9"},
+		{[]string{"::ffff:203.0.113.9"}, "203.0.113.9"},
+		// The proxy may append its own header line; the last entry counts.
+		{[]string{"6.6.6.6", "198.51.100.7"}, "198.51.100.7"},
+		{[]string{"6.6.6.6, 198.51.100.7"}, "198.51.100.7"},
+		// One IPv6 host owns a /64.
+		{[]string{"2001:db8:1:2:aaaa::1"}, "2001:db8:1:2::/64"},
+		{[]string{"[2001:db8:1:2:bbbb::9]:443"}, "2001:db8:1:2::/64"},
+		{[]string{"fe80::1%eth0"}, "fe80::/64"},
+		// Not an address: the TCP peer.
+		{[]string{"unknown"}, "192.0.2.1"},
+		{[]string{",,,"}, "192.0.2.1"},
+	} {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = "192.0.2.1:5555"
+		for _, v := range c.values {
+			r.Header.Add("X-Forwarded-For", v)
+		}
+		if got := s.clientAddr(r); got != c.want {
+			t.Errorf("%q: got %q, want %q", c.values, got, c.want)
+		}
 	}
 }
 
