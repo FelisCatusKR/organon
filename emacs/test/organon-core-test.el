@@ -158,6 +158,13 @@
   "time-model: Day boundary in Asia/Seoul (container TZ is UTC)."
   (organon-test-with-instance "basic" "2026-10-02 23:30:00"
     (should (equal (organon-json-instant (current-time)) "2026-10-02T23:30:00Z"))
-    (should (equal (alist-get 'today (organon-test-result "meta")) "2026-10-03"))))
+    (should (equal (alist-get 'today (organon-test-result "meta")) "2026-10-03"))
+    ;; Without a date, tasks.today uses the calendar date, not the UTC one.
+    (let* ((task (organon-test-result "task.create"
+                                      '((title . "Due on the 3rd") (deadline . ((date . "2026-10-03"))))))
+           (today (organon-test-result "tasks.today" nil))
+           (entry (seq-find (lambda (e) (equal (alist-get 'id e) (alist-get 'id task))) today)))
+      (should entry)
+      (should (equal (alist-get 'agenda entry) '((kind . "deadline") (date . "2026-10-03")))))))
 
 ;;; organon-core-test.el ends here
