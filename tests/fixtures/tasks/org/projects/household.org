@@ -1,0 +1,11 @@
+#+title: Household
+
+* Household
+:PROPERTIES:
+:ID:       22222222-2222-4222-8222-000000000001
+:END:
+** NEXT Existing child task
+:PROPERTIES:
+:ID:       22222222-2222-4222-8222-000000000002
+:END:
+* Not a project heading child
