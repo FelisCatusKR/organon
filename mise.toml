@@ -44,6 +44,10 @@ description = "Fail if generated code is out of date with api/openapi.yaml"
 depends = ["generate"]
 run = "git diff --exit-code -- api/internal/model/model.gen.go || (echo 'model.gen.go is stale: run mise run generate and commit' >&2; exit 1)"
 
+[tasks."check:deploy-interface"]
+description = "Fail if compose.yaml or contrib/quadlet/ drift from contrib/container-interface.json"
+run = "scripts/check-deploy-interface.sh"
+
 [tasks."spec:check-archived"]
 description = "Fail if a change has all tasks done but is not archived"
 run = "scripts/check-openspec-archived.sh"
