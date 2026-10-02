@@ -32,7 +32,8 @@
       ;; half-written file.
       file-precious-flag t
       ;; ...and make the temp file durable before the rename, so that a power
-      ;; cut (a Pi on an SD card) cannot leave an empty or stale file behind.
+      ;; cut (a Pi on an SD card) leaves either the old or the new file, never
+      ;; an empty one.  The rename itself may be lost (no directory fsync).
       write-region-inhibit-fsync nil
       ;; Files changed on disk by another process are re-read without asking
       ;; (find-file-noselect would otherwise prompt and block the daemon).

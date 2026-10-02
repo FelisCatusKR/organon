@@ -12,19 +12,28 @@
 ;;; Code:
 
 (let* ((dir (file-name-directory load-file-name))
-       (files (directory-files dir t "\\`organon.*\\.el\\'")))
+       (files (directory-files dir t "\\`organon.*\\.el\\'"))
+       (native (and files (native-comp-available-p))))
   (add-to-list 'load-path dir)
   (setq byte-compile-error-on-warn nil)
+  (when native
+    ;; organon.el advises the prompt primitives when it is first loaded, which
+    ;; happens below while byte-compiling organon-task.el (it requires
+    ;; organon).  With trampolines enabled, that writes their trampolines to
+    ;; `native-compile-target-directory'.  site-start.el disables them, so
+    ;; enable them before anything loads organon.el.
+    (setq native-compile-target-directory (expand-file-name "eln/" dir)
+          native-comp-enable-subr-trampolines t))
   (dolist (file files)
     (unless (byte-compile-file file)
       (message "build: byte-compilation failed: %s" file)
       (kill-emacs 1)))
-  (when (and files (native-comp-available-p))
-    (setq native-compile-target-directory (expand-file-name "eln/" dir))
+  (when native
     (dolist (file files)
       (native-compile file))
-    ;; Loading the engine advises the prompt primitives, which compiles their
-    ;; trampolines into `native-compile-target-directory' (see init.el).
-    (load (expand-file-name "init.el" dir) nil t)))
+    (require 'organon)
+    (unless (directory-files-recursively native-compile-target-directory "\\`subr--trampoline-")
+      (message "build: no trampolines were written to %s" native-compile-target-directory)
+      (kill-emacs 1))))
 
 ;;; build.el ends here
