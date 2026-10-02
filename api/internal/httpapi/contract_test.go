@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FelisCatusKR/organon/api/internal/rpc"
 	"github.com/pb33f/libopenapi"
 	validator "github.com/pb33f/libopenapi-validator"
 )
@@ -101,4 +102,56 @@ func TestResponsesMatchContract(t *testing.T) {
 		vreq.Header = req.Header
 		validateExchange(t, v, vreq, rec)
 	}
+}
+
+// api-access: Responses match the schema, for error and replay responses.
+func TestErrorResponsesMatchContract(t *testing.T) {
+	v := newContractValidator(t)
+	engine, h := newTestServer(t)
+	const missingID = "99999999-9999-4999-8999-999999999999"
+	engine.answers["task.get"] = func(p map[string]any) (any, error) {
+		if p["id"] == missingID {
+			return nil, &rpc.Error{Code: rpc.CodeNotFound, Message: "no entry with id " + missingID}
+		}
+		return sampleTask(p["id"].(string)), nil
+	}
+	engine.answers["meta"] = func(map[string]any) (any, error) {
+		return nil, &rpc.Error{Code: rpc.CodeUnavailable, Message: "Missing organon.json"}
+	}
+
+	exchange := func(method, target, token, body string, header ...string) (*http.Request, *httptest.ResponseRecorder) {
+		req := httptest.NewRequest(method, target, strings.NewReader(body))
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		for i := 0; i+1 < len(header); i += 2 {
+			req.Header.Set(header[i], header[i+1])
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		vreq := httptest.NewRequest(method, target, strings.NewReader(body))
+		vreq.Header = req.Header
+		return vreq, rec
+	}
+	check := func(status int, method, target, token, body string, header ...string) {
+		t.Helper()
+		req, rec := exchange(method, target, token, body, header...)
+		if rec.Code != status {
+			t.Fatalf("%s %s: status %d, want %d: %s", req.Method, req.URL, rec.Code, status, rec.Body)
+		}
+		validateExchange(t, v, req, rec)
+	}
+
+	check(404, "GET", "/api/v1/tasks/"+missingID, readToken, "")
+	check(503, "GET", "/api/v1/meta", readToken, "")
+	check(422, "POST", "/api/v1/tasks", writeToken, `{"title":"`+strings.Repeat("x", maxBodyBytes)+`"}`)
+	exchange("POST", "/api/v1/tasks", writeToken, `{"title":"Pay"}`, "Idempotency-Key", "contract-1")
+	check(201, "POST", "/api/v1/tasks", writeToken, `{"title":"Pay"}`, "Idempotency-Key", "contract-1")
+	for i := 0; i < 10; i++ {
+		exchange("GET", "/api/v1/tasks/today", "wrong", "")
+	}
+	check(429, "GET", "/api/v1/tasks/today", "wrong", "")
 }

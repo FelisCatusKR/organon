@@ -57,6 +57,7 @@ as_owner() {
   else "$@"; fi
 }
 
+# Prints exactly one podman option.
 podman_userns() {
   if [[ "$uid" == 1000 ]]; then echo "--userns=keep-id:uid=1000,gid=1000"
   else echo "--user=$uid:$uid"; fi
@@ -64,7 +65,7 @@ podman_userns() {
 
 start_engine() {
   if [[ "$runtime" == compose ]]; then compose up -d engine; return; fi
-  podman run -d --name organon-e2e-engine $(podman_userns) \
+  podman run -d --name organon-e2e-engine "$(podman_userns)" \
     --network none --read-only --tmpfs /tmp --cap-drop all --security-opt no-new-privileges \
     -v "$work/data:/data:Z" -v organon-e2e-cache:/cache -v organon-e2e-run:/run/organon \
     --health-cmd "organon rpc-ping" --health-interval 2s --health-start-period 120s \
@@ -73,7 +74,7 @@ start_engine() {
 
 start_api() {
   if [[ "$runtime" == compose ]]; then compose up -d api; return; fi
-  podman run -d --name organon-e2e-api $(podman_userns) \
+  podman run -d --name organon-e2e-api "$(podman_userns)" \
     --read-only --cap-drop all --security-opt no-new-privileges \
     -e ORGANON_LISTEN=0.0.0.0:8080 -e ORGANON_TOKENS_FILE=/tokens -e ORGANON_ENGINE_TIMEOUT=10s \
     -v "$work/tokens:/tokens:ro,Z" -v organon-e2e-run:/run/organon -p "127.0.0.1:$port:8080" \
@@ -212,7 +213,7 @@ if [[ "$runtime" == compose ]]; then
   compose run --rm --no-deps engine organon init --calendar-tz Asia/Seoul >/dev/null
   token_out=$(compose run --rm --no-deps engine organon token new --name e2e --scopes read,tasks:write)
 else
-  podman run --rm $(podman_userns) -v "$work/data:/data:Z" "$image" organon init --calendar-tz Asia/Seoul >/dev/null
+  podman run --rm "$(podman_userns)" -v "$work/data:/data:Z" "$image" organon init --calendar-tz Asia/Seoul >/dev/null
   token_out=$(podman run --rm "$image" organon token new --name e2e --scopes read,tasks:write)
 fi
 token=$(sed -n 2p <<<"$token_out" | tr -d ' \r')

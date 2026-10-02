@@ -3,6 +3,7 @@
 # inside the container image, and Elisp tests run inside that image.
 [tools]
 go = "1.27.1"
+jq = "1.8.2"  # scripts/check-openspec-archived.sh
 node = "24.21.0"
 "npm:@fission-ai/openspec" = "1.14.0"
 "npm:@redocly/cli" = "2.57.0"
