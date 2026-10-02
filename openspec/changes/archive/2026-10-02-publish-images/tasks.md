@@ -12,8 +12,8 @@
 
 ## 3. Integration
 
-- [ ] 3.1 Push the branch and verify deployment: Pull request (the PR's CI run skips both publish jobs and pushes nothing)
-- [ ] 3.2 Archive the change as the last commit of the pull request and verify `mise run spec:check-archived` passes
+- [x] 3.1 Push the branch and verify deployment: Pull request (the PR's CI run skips both publish jobs and pushes nothing)
+- [x] 3.2 Archive the change as the last commit of the pull request and verify `mise run spec:check-archived` passes
 
 After merging (outside this task list, because a change is archived before it merges): verify deployment
 Commit on main. The manifest has amd64 and arm64 entries, `sha-<7>` and `main` point to it, and the revision
