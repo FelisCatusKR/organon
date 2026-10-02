@@ -405,34 +405,9 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := r.Header.Get("Idempotency-Key")
-	storeKey := ""
-	if key != "" {
-		if len(key) > 200 {
-			invalid(w, "Idempotency-Key must be at most 200 characters")
-			return
-		}
-		canonical, _ := json.Marshal(req)
-		sum := sha256.Sum256(canonical)
-		tok := r.Context().Value(tokenKey{}).(*auth.Token)
-		storeKey = tok.Name + "\x00" + key
-		switch outcome, stored := s.Idempotency.Begin(storeKey, hex.EncodeToString(sum[:])); outcome {
-		case idem.Replay:
-			w.Header().Set("Content-Type", "application/json")
-			if stored.Location != "" {
-				w.Header().Set("Location", stored.Location)
-			}
-			w.Header().Set("Idempotent-Replayed", "true")
-			w.WriteHeader(stored.Status)
-			w.Write(stored.Body)
-			return
-		case idem.Mismatch:
-			invalid(w, "Idempotency-Key was already used with a different request body")
-			return
-		case idem.InProgress:
-			writeProblem(w, http.StatusConflict, model.ProblemCodeConflict, "a request with this Idempotency-Key is in progress", nil)
-			return
-		}
+	storeKey, handled := s.beginIdempotent(w, r, req)
+	if handled {
+		return
 	}
 
 	var task model.Task
@@ -620,10 +595,58 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	if _, ok := decodeBody(w, r, &req); !ok {
 		return
 	}
+	storeKey, handled := s.beginIdempotent(w, r, req)
+	if handled {
+		return
+	}
 	var project model.Project
 	if err := s.Engine.Call(r.Context(), "project.create", req, &project); err != nil {
+		if storeKey != "" {
+			s.Idempotency.Abort(storeKey)
+		}
 		s.writeEngineError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, project)
+	body := writeJSON(w, http.StatusCreated, project)
+	if storeKey != "" {
+		s.Idempotency.Finish(storeKey, idem.Response{Status: http.StatusCreated, Body: body})
+	}
+}
+
+// beginIdempotent handles the Idempotency-Key header of a create request
+// whose decoded body is req. It returns the store key to Finish or Abort
+// ("" without a header), or handled=true when it already answered: a replay
+// of the stored response, a key reused with another body, or a request with
+// the same key still in progress. Keys are scoped per token and endpoint.
+func (s *Server) beginIdempotent(w http.ResponseWriter, r *http.Request, req any) (string, bool) {
+	key := r.Header.Get("Idempotency-Key")
+	if key == "" {
+		return "", false
+	}
+	if len(key) > 200 {
+		invalid(w, "Idempotency-Key must be at most 200 characters")
+		return "", true
+	}
+	canonical, _ := json.Marshal(req)
+	sum := sha256.Sum256(canonical)
+	tok := r.Context().Value(tokenKey{}).(*auth.Token)
+	storeKey := tok.Name + "\x00" + r.URL.Path + "\x00" + key
+	switch outcome, stored := s.Idempotency.Begin(storeKey, hex.EncodeToString(sum[:])); outcome {
+	case idem.Replay:
+		w.Header().Set("Content-Type", "application/json")
+		if stored.Location != "" {
+			w.Header().Set("Location", stored.Location)
+		}
+		w.Header().Set("Idempotent-Replayed", "true")
+		w.WriteHeader(stored.Status)
+		w.Write(stored.Body)
+		return "", true
+	case idem.Mismatch:
+		invalid(w, "Idempotency-Key was already used with a different request body")
+		return "", true
+	case idem.InProgress:
+		writeProblem(w, http.StatusConflict, model.ProblemCodeConflict, "a request with this Idempotency-Key is in progress", nil)
+		return "", true
+	}
+	return storeKey, false
 }

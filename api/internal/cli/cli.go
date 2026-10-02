@@ -30,7 +30,7 @@ const Usage = `client commands (configure with ORGANON_URL / ORGANON_TOKEN or ~/
   task show ID
   task edit ID [--title T] [--body B] [--priority X|none] [--tags a,b|none]
                [--scheduled D|none] [--deadline D|none] [--repeat R|none] [--warn N]
-               (a moved date keeps its repeater and warning unless given)
+               (a moved date keeps its repeater and warning unless given; --warn 0 removes it)
                [--repeat-to TODO|NEXT|none]
   task start|wait|done|skip|cancel|todo|next ID
   project add TITLE [--body TEXT]
@@ -66,8 +66,16 @@ func (s *stringList) String() string     { return strings.Join(*s, ",") }
 func (s *stringList) Set(v string) error { *s = append(*s, v); return nil }
 
 // parse parses flags that may appear before, between or after positional
-// arguments, and returns the positional ones.
+// arguments, and returns the positional ones. Everything after "--" is
+// positional, so a title may start with "-".
 func parse(fs *flag.FlagSet, args []string) ([]string, error) {
+	var rest []string
+	for i, a := range args {
+		if a == "--" {
+			args, rest = args[:i], args[i+1:]
+			break
+		}
+	}
 	var positional []string
 	for len(args) > 0 {
 		if err := fs.Parse(args); err != nil {
@@ -79,7 +87,7 @@ func parse(fs *flag.FlagSet, args []string) ([]string, error) {
 			args = args[1:]
 		}
 	}
-	return positional, nil
+	return append(positional, rest...), nil
 }
 
 func (r *runner) newFlags(name string) *flag.FlagSet {
@@ -230,7 +238,7 @@ func (r *runner) taskAdd(ctx context.Context, args []string) error {
 		req.State = &st
 	}
 	if priority != "" {
-		p := model.CreateTaskPriority(priority)
+		p := model.CreateTaskPriority(strings.ToUpper(priority))
 		req.Priority = &p
 	}
 	if len(tags) > 0 {
@@ -241,7 +249,7 @@ func (r *runner) taskAdd(ctx context.Context, args []string) error {
 		req.Body = &body
 	}
 	if repeatTo != "" {
-		rt := model.CreateTaskRepeatToState(repeatTo)
+		rt := model.CreateTaskRepeatToState(strings.ToUpper(repeatTo))
 		req.RepeatToState = &rt
 	}
 	if deadline != "" {
@@ -408,7 +416,7 @@ func (r *runner) taskEdit(ctx context.Context, args []string) error {
 			if v := *values[flagName]; v == "none" {
 				fields[field] = nil
 			} else {
-				fields[field] = v
+				fields[field] = strings.ToUpper(v)
 			}
 		}
 	}
@@ -422,12 +430,15 @@ func (r *runner) taskEdit(ctx context.Context, args []string) error {
 	warn := 0
 	if set["warn"] {
 		if warn, err = strconv.Atoi(*values["warn"]); err != nil || warn < 0 {
-			return errors.New("--warn must be a positive number of days")
+			return errors.New("--warn must be a number of days (0 removes the warning)")
+		}
+		if !set["deadline"] {
+			return errors.New("--warn goes with --deadline")
 		}
 	}
 	repeat := *values["repeat"]
-	if (set["repeat"] || set["warn"]) && !set["deadline"] && !set["scheduled"] {
-		return errors.New("--repeat and --warn go with --deadline or --scheduled")
+	if set["repeat"] && !set["deadline"] && !set["scheduled"] {
+		return errors.New("--repeat goes with --deadline or --scheduled")
 	}
 	if len(fields) == 0 && !set["deadline"] && !set["scheduled"] {
 		return errors.New("nothing to change")

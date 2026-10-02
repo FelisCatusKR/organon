@@ -97,7 +97,13 @@ var (
 func organon(t *testing.T, args ...string) string {
 	t.Helper()
 	cliOnce.Do(func() {
-		cliPath = filepath.Join(os.TempDir(), "organon-e2e-cli")
+		// A directory of its own, so concurrent runs do not share a binary.
+		dir, err := os.MkdirTemp("", "organon-e2e-cli-")
+		if err != nil {
+			cliErr = err
+			return
+		}
+		cliPath = filepath.Join(dir, "organon")
 		out, err := exec.Command("go", "build", "-o", cliPath, "../cmd/organon").CombinedOutput()
 		if err != nil {
 			cliErr = err

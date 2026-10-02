@@ -42,6 +42,7 @@ closing projects.
 - `task-lifecycle`: adds editing a task, and adds `todo` / `next` transitions to the existing state
   transitions requirement.
 - `api-access`: the `tasks:write` scope also covers editing tasks and creating projects.
+- `agenda-queries`: today's tasks are entries that are tasks under the refined definition (state and ID).
 
 ## Impact
 

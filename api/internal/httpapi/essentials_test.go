@@ -183,3 +183,20 @@ func TestEssentialsResponsesMatchContract(t *testing.T) {
 		validateExchange(t, v, vreq, rec)
 	}
 }
+
+// projects: Retried creation
+func TestCreateProjectIsIdempotent(t *testing.T) {
+	engine, h := withEssentialsHandler(t)
+	a := do(t, h, "POST", "/api/v1/projects", writeToken, `{"title":"Household"}`, "Idempotency-Key", "p-1")
+	b := do(t, h, "POST", "/api/v1/projects", writeToken, `{"title":"Household"}`, "Idempotency-Key", "p-1")
+	if a.status != 201 || b.status != 201 || a.raw != b.raw || b.header.Get("Idempotent-Replayed") != "true" {
+		t.Fatalf("a=%d %s b=%d %s", a.status, a.raw, b.status, b.raw)
+	}
+	if engine.count() != 1 {
+		t.Fatalf("engine called %d times", engine.count())
+	}
+	// The same key on another endpoint is a different request.
+	if c := do(t, h, "POST", "/api/v1/tasks", writeToken, `{"title":"x"}`, "Idempotency-Key", "p-1"); c.status != 201 {
+		t.Fatalf("task with same key: %d %s", c.status, c.raw)
+	}
+}

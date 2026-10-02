@@ -272,3 +272,60 @@
                      "TODO"))
       (let ((edited (organon-test-update-result 2 '((title . "Renamed")))))
         (should (equal (alist-get 'version edited) (organon-test-version 2)))))))
+
+;;;; Review follow-ups
+
+(ert-deftest organon-essentials/project-title-cannot-start-with-a-state ()
+  "projects: a title like \"TODO app\" would make Org read the heading as a task."
+  (organon-test-with-essentials
+    (dolist (title '("TODO app" "NEXT steps" "DONE deals" "WAITING list"))
+      (should (equal (organon-test-error-code "project.create" `((title . ,title))) "invalid")))
+    (should-not (directory-files (organon-test-file "org/projects/") nil "todo\\|next\\|done\\|waiting"))
+    ;; Lower case and words that merely contain a state are fine.
+    (should (organon-test-result "project.create" '((title . "Todo app"))))
+    (should (organon-test-result "project.create" '((title . "TODOS"))))))
+
+(ert-deftest organon-essentials/task-heading-is-not-a-project ()
+  "task.create's project_id uses the same definition as projects.list."
+  (organon-test-with-essentials
+    (let ((file-precious-flag nil))
+      (with-temp-file (organon-test-file "org/projects/not-a-project.org")
+        (insert "* TODO Looks like a project\n:PROPERTIES:\n:ID:       44444444-4444-4444-8444-000000000300\n:END:\n")))
+    (should (equal (organon-test-error-code "task.create" '((title . "x")
+                                                            (project_id . "44444444-4444-4444-8444-000000000300")))
+                   "invalid"))
+    (should-not (seq-find (lambda (p) (equal (alist-get 'id p) "44444444-4444-4444-8444-000000000300"))
+                          (organon-test-result "projects.list")))))
+
+(ert-deftest organon-essentials/doing-limit-counts-only-tasks ()
+  "Headings without an ID do not count towards doing_limit."
+  (organon-test-with-essentials
+    (let ((file-precious-flag nil))
+      (with-temp-buffer
+        (insert "* DOING hand-written 1\n* DOING hand-written 2\n* DOING hand-written 3\n")
+        (append-to-file (point-min) (point-max) (organon-test-file "org/tasks/inbox.org"))))
+    (let ((result (organon-test-result "task.transition"
+                                       `((id . ,(organon-test-eid 1)) (action . "start") (expected_state . "TODO")
+                                         (expected_version . ,(organon-test-version 1))))))
+      (should (equal (alist-get 'warnings result) [])))))
+
+(ert-deftest organon-essentials/clock-line-in-body-round-trips ()
+  (organon-test-with-essentials
+    (let* ((body "CLOCK: [2026-10-02 Fri 10:00]--[2026-10-02 Fri 11:00] =>  1:00\nafter")
+           (task (organon-test-update-result 1 `((body . ,body)))))
+      (should (equal (alist-get 'body task) body))
+      (should (string-match-p "^,CLOCK:" (organon-test-file-string "org/tasks/inbox.org"))))))
+
+(ert-deftest organon-essentials/failed-new-file-keeps-the-original-error ()
+  (organon-test-with-essentials
+    (let ((file (organon-test-file "org/projects/never-written.org")))
+      (unwind-protect
+          (progn
+            (puthash "test.new-file-fails"
+                     (lambda (_) (organon-with-file file (insert "* x\n") (error "Boom")))
+                     organon-methods)
+            (let ((err (alist-get 'error (organon-test-call "test.new-file-fails"))))
+              (should (equal (alist-get 'code err) "internal"))
+              (should (string-match-p "Boom" (alist-get 'message err)))))
+        (remhash "test.new-file-fails" organon-methods))
+      (should-not (file-exists-p file)))))

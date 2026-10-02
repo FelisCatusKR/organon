@@ -256,7 +256,9 @@ not a task either: clients address tasks by ID only."
                    (save-excursion
                      (goto-char marker)
                      (and (organon--in-org-subdir-p "projects")
-                          (= (org-current-level) 1)))))
+                          (= (org-current-level) 1)
+                          ;; Same definition as projects.list.
+                          (not (org-get-todo-state))))))
       (organon-signal "invalid" (format "project_id %s is not a project heading" id)))
     marker))
 
@@ -420,8 +422,10 @@ Rewrites each stamp from Org's own parse with the repeater unset."
             (insert (org-element-interpret-data new))))))))
 
 (defun organon--count-state (state)
+  "Number of tasks (see `organon-task-state') in STATE in the agenda sources."
   (let ((org-agenda-files (organon-agenda-files)))
-    (length (org-map-entries #'ignore (format "TODO=%S" state) 'agenda))))
+    (length (delq nil (org-map-entries (lambda () (equal (organon-task-state) state))
+                                       (format "TODO=%S" state) 'agenda)))))
 
 (organon-defmethod "task.transition" (params)
   "Move a task to another state.
@@ -706,9 +710,18 @@ values never become Org match syntax."
       (open_tasks . ,open)
       (location_hint . ,(organon-relative-path buffer-file-name)))))
 
+(defun organon--clean-project-title (title)
+  "Like `organon-clean-title', and TITLE must not start with a workflow state:
+Org would read `* TODO app' as a task, not as a project."
+  (let ((clean (organon-clean-title title))
+        (case-fold-search nil))
+    (when (string-match-p (concat "\\`" (regexp-opt organon-task-states) "\\_>") clean)
+      (organon-signal "invalid" "a project title must not start with a task state such as TODO"))
+    clean))
+
 (organon-defmethod "project.create" (params)
   "Create a project: a new file under projects/ with one level-1 heading."
-  (let* ((title (organon-clean-title (organon-param params 'title t)))
+  (let* ((title (organon--clean-project-title (organon-param params 'title t)))
          (body (organon--param-body params))
          (file (organon--project-file-name title)))
     (make-directory (file-name-directory file) t)

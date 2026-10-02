@@ -37,6 +37,7 @@ func task(id, state, title string, repeat bool) map[string]any {
 	deadline := map[string]any{"date": "2026-10-25", "time": nil, "repeat": nil, "warning_days": nil}
 	if repeat {
 		deadline["repeat"] = "+1m"
+		deadline["warning_days"] = 3
 	}
 	return map[string]any{"id": id, "title": title, "state": state, "priority": nil, "tags": []string{},
 		"scheduled": nil, "deadline": deadline, "repeat_to_state": nil, "closed_at": nil, "project": nil,
@@ -293,15 +294,40 @@ func TestPostponeKeepsRepeater(t *testing.T) {
 		t.Fatal(errs)
 	}
 	got, _ := json.Marshal(f.writes()[0].Body["deadline"])
-	if string(got) != `{"date":"2026-10-30","repeat":"+1m"}` {
+	if string(got) != `{"date":"2026-10-30","repeat":"+1m","warning_days":3}` {
 		t.Fatalf("deadline %s", got)
 	}
 	if code, _, errs := run(t, f, "task", "edit", idA, "--deadline", "2026-10-30", "--repeat", "none"); code != 0 {
 		t.Fatal(errs)
 	}
 	got, _ = json.Marshal(f.writes()[1].Body["deadline"])
-	if string(got) != `{"date":"2026-10-30"}` {
+	if string(got) != `{"date":"2026-10-30","warning_days":3}` {
 		t.Fatalf("deadline with --repeat none %s", got)
+	}
+	if code, _, errs := run(t, f, "task", "edit", idA, "--deadline", "2026-10-30", "--warn", "0"); code != 0 {
+		t.Fatal(errs)
+	}
+	got, _ = json.Marshal(f.writes()[2].Body["deadline"])
+	if string(got) != `{"date":"2026-10-30","repeat":"+1m"}` {
+		t.Fatalf("deadline with --warn 0 %s", got)
+	}
+	// --warn belongs to the deadline: with only --scheduled it is an error, not ignored.
+	if code, _, _ := run(t, f, "task", "edit", idA, "--scheduled", "2026-10-30", "--warn", "3"); code == 0 {
+		t.Fatal("--warn without --deadline accepted")
+	}
+}
+
+func TestDoubleDashAndCase(t *testing.T) {
+	f := newFakeAPI(t)
+	if code, _, errs := run(t, f, "task", "add", "--next", "--priority", "a", "--", "-x starts with a dash"); code != 0 {
+		t.Fatal(errs)
+	}
+	body := f.writes()[0].Body
+	if body["title"] != "-x starts with a dash" || body["priority"] != "A" || body["state"] != "NEXT" {
+		t.Fatalf("body %v", body)
+	}
+	if code, _, _ := run(t, f, "task", "add", "--", "title", "--next"); code == 0 {
+		t.Fatal("two titles accepted")
 	}
 }
 

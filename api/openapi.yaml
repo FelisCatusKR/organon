@@ -183,13 +183,7 @@ paths:
       operationId: createTask
       summary: Create a task in the inbox or under a project
       parameters:
-        - name: Idempotency-Key
-          in: header
-          required: false
-          description: |
-            Retrying with the same key and body returns the original response
-            instead of creating another task (held in memory for 24 h).
-          schema: { type: string, maxLength: 200 }
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -323,6 +317,8 @@ paths:
       tags: [projects]
       operationId: createProject
       summary: Create a project (a new file under projects/)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -350,6 +346,15 @@ components:
         `read` for every GET, `tasks:write` for creating and changing tasks.
 
   parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Retrying with the same key and body returns the original response
+        instead of creating the resource again (held in memory for 24 h,
+        per token and endpoint).
+      schema: { type: string, maxLength: 200 }
     id:
       name: id
       in: path
@@ -481,7 +486,10 @@ components:
         id: { $ref: "#/components/schemas/ID" }
         title: { type: string }
         state: { $ref: "#/components/schemas/State" }
-        priority: { type: [string, "null"], enum: [A, B, C, null] }
+        priority:
+          oneOf:
+            - { type: string, enum: [A, B, C] }
+            - type: "null"
         tags:
           type: array
           items: { type: string }
@@ -493,7 +501,10 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Timestamp"
             - type: "null"
-        repeat_to_state: { type: [string, "null"], enum: [TODO, NEXT, null] }
+        repeat_to_state:
+          oneOf:
+            - { type: string, enum: [TODO, NEXT] }
+            - type: "null"
         closed_at:
           type: [string, "null"]
           format: date-time
@@ -586,7 +597,10 @@ components:
         expected_version: { type: string, description: The task's `version`. }
         title: { type: string, maxLength: 500 }
         body: { type: string }
-        priority: { type: [string, "null"], enum: [A, B, C, null] }
+        priority:
+          oneOf:
+            - { type: string, enum: [A, B, C] }
+            - type: "null"
         tags:
           type: array
           items: { type: string, pattern: "^[A-Za-z0-9_@#%]+$" }
@@ -598,7 +612,10 @@ components:
           oneOf:
             - $ref: "#/components/schemas/TimestampInput"
             - type: "null"
-        repeat_to_state: { type: [string, "null"], enum: [TODO, NEXT, null] }
+        repeat_to_state:
+          oneOf:
+            - { type: string, enum: [TODO, NEXT] }
+            - type: "null"
 
     Project:
       type: object
@@ -630,7 +647,7 @@ components:
         title:
           type: string
           maxLength: 500
-          description: Same rules as task titles.
+          description: Same rules as task titles, and must not start with a task state such as TODO.
         body: { type: string }
 
     Transition:
