@@ -16,6 +16,10 @@ recursively), in file order. Without a `state` filter it SHALL return tasks in o
 - **WHEN** a `TODO` task has no scheduled or deadline date
 - **THEN** it is returned by `GET /api/v1/tasks`
 
+#### Scenario: Headings with other keywords are not tasks
+- **WHEN** a file declares its own `#+TODO: IDEA | DROPPED` and contains an `IDEA` heading
+- **THEN** that heading is not returned by `GET /api/v1/tasks` with any filter, and it does not count towards a project's `open_tasks`
+
 #### Scenario: Closed tasks are not listed by default
 - **WHEN** a task is `DONE` or `CANCELLED`
 - **THEN** it is not returned by `GET /api/v1/tasks` without a `state` filter

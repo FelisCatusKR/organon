@@ -48,8 +48,8 @@ would also log the automatic return to `NEXT` after each repeat. On a repeating 
 `expected_version` like every other transition.
 
 ### D3. Listing walks the agenda sources and filters in Lisp
-`tasks.list` uses `org-map-entries` over `organon-agenda-files` and keeps entries whose state is in the
-requested set, whose project (MVP-A's `organon--project-json`) matches, and whose local tags contain the tag.
+`tasks.list` uses `org-map-entries` over `organon-agenda-files` and keeps entries whose state, as returned by
+the existing `organon-task-states` check (only the six workflow states are tasks), is in the requested set, whose project (MVP-A's `organon--project-json`) matches, and whose local tags contain the tag.
 Filtering happens in Lisp rather than by building an Org match string, so request values never become Org
 query syntax. Tag filtering uses local tags, the same tags the task JSON shows.
 
