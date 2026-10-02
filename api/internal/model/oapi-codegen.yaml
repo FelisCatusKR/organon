@@ -1,0 +1,9 @@
+# Go types generated from api/openapi.yaml (the contract is the source).
+# Regenerate with `go generate ./...` (or `mise run generate`); CI fails if the
+# committed output differs.
+package: model
+generate:
+  models: true
+output: model.gen.go
+output-options:
+  name-normalizer: ToCamelCaseWithInitialisms

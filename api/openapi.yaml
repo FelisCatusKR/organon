@@ -1,0 +1,525 @@
+openapi: 3.1.0
+info:
+  title: Organon Personal API
+  version: 0.1.0
+  summary: Headless Org-mode as your personal API.
+  description: |
+    Tasks live in plain Org files; this API is the only way clients read and
+    change them. Everything that has a meaning in Org (state changes,
+    repeaters, deadline warnings, agenda membership) is computed by Org itself.
+
+    **Dates and instants.** Planning dates (`scheduled`, `deadline`) are
+    calendar dates with an optional wall-clock time in the instance's calendar
+    zone (`GET /api/v1/meta` → `calendar_tz`); they carry no offset. Instants
+    (`closed_at`) are RFC 3339 UTC.
+
+    Behavior is specified in `openspec/` (capabilities task-lifecycle,
+    task-recurrence, agenda-queries, time-model, api-access).
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://127.0.0.1:8080
+security:
+  - bearer: []
+tags:
+  - name: system
+    description: Health and instance metadata.
+  - name: tasks
+    description: Tasks (Org headings with a TODO state) and their state changes.
+  - name: agenda
+    description: The Org agenda for a day.
+
+paths:
+  /healthz:
+    get:
+      tags: [system]
+      operationId: health
+      summary: Health of the API and the engine
+      security: []
+      responses:
+        "200":
+          description: The engine answers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { const: ok }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/meta:
+    get:
+      tags: [system]
+      operationId: getMeta
+      summary: Instance metadata
+      responses:
+        "200":
+          description: Instance metadata.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meta" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/agenda:
+    get:
+      tags: [agenda]
+      operationId: getAgenda
+      summary: The Org agenda for one day
+      description: |
+        Every entry Org Agenda shows for the day when that day is the current
+        day: deadline warnings and overdue items apply to it.
+      parameters:
+        - $ref: "#/components/parameters/date"
+      responses:
+        "200":
+          description: Agenda entries in agenda order.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgendaList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/tasks/today:
+    get:
+      tags: [tasks]
+      operationId: listTodayTasks
+      summary: Open tasks on the day's agenda
+      parameters:
+        - $ref: "#/components/parameters/date"
+      responses:
+        "200": { $ref: "#/components/responses/TaskListWithAgenda" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/tasks/overdue:
+    get:
+      tags: [tasks]
+      operationId: listOverdueTasks
+      summary: Tasks on the day's agenda that are past-scheduled or past their deadline
+      parameters:
+        - $ref: "#/components/parameters/date"
+      responses:
+        "200": { $ref: "#/components/responses/TaskListWithAgenda" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/tasks/waiting:
+    get:
+      tags: [tasks]
+      operationId: listWaitingTasks
+      summary: All WAITING tasks, with or without dates
+      responses:
+        "200": { $ref: "#/components/responses/TaskList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/tasks/completed:
+    get:
+      tags: [tasks]
+      operationId: listCompletedTasks
+      summary: Tasks completed on a day, including repeating tasks
+      parameters:
+        - $ref: "#/components/parameters/date"
+      responses:
+        "200": { $ref: "#/components/responses/TaskList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/tasks:
+    post:
+      tags: [tasks]
+      operationId: createTask
+      summary: Create a task in the inbox or under a project
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: |
+            Retrying with the same key and body returns the original response
+            instead of creating another task (held in memory for 24 h).
+          schema: { type: string, maxLength: 200 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTask" }
+      responses:
+        "201":
+          description: The created task.
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/tasks/{id}:
+    get:
+      tags: [tasks]
+      operationId: getTask
+      summary: A task by its stable ID
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: The task.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/tasks/{id}/{action}:
+    post:
+      tags: [tasks]
+      operationId: transitionTask
+      summary: Change a task's state
+      description: |
+        - `start` → DOING, `wait` → WAITING, `complete` → DONE.
+        - `skip` → CANCELLED for this occurrence; a repeating task moves to
+          its next occurrence.
+        - `cancel` → CANCELLED and, for a repeating task, ends the series.
+
+        `expected_state` is always required. `expected_version` (the task's
+        `version`) is required for repeating tasks, which return to an open
+        state after completion: without it a retried request could not be
+        told apart from a new one.
+      parameters:
+        - $ref: "#/components/parameters/id"
+        - name: action
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [start, wait, complete, skip, cancel]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Transition" }
+      responses:
+        "200":
+          description: The task after the transition.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransitionResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: |
+        Tokens are created with `organon token new` and carry scopes:
+        `read` for every GET, `tasks:write` for creating and changing tasks.
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      description: The task's Org ID (a lowercase UUID).
+      schema: { $ref: "#/components/schemas/ID" }
+    date:
+      name: date
+      in: query
+      required: false
+      description: Calendar date; defaults to today in the instance calendar zone.
+      schema: { $ref: "#/components/schemas/Date" }
+
+  responses:
+    TaskList:
+      description: Tasks.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/TaskList" }
+    TaskListWithAgenda:
+      description: Tasks; each carries `agenda`, the reason it is on the agenda.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/TaskList" }
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Forbidden:
+      description: The token lacks the required scope.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    NotFound:
+      description: No such task (or endpoint).
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Conflict:
+      description: |
+        The task is not in `expected_state` / `expected_version` (the problem
+        carries `actual_state` and `actual_version`), or an idempotent request
+        with the same key is still in progress.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Invalid:
+      description: The request is malformed or violates a rule.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    RateLimited:
+      description: Too many failed authentication attempts from this address.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    EngineUnavailable:
+      description: The engine is not reachable, not configured, or did not answer in time.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    ID:
+      type: string
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    Date:
+      type: string
+      pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+      examples: ["2026-10-25"]
+    State:
+      type: string
+      enum: [TODO, NEXT, DOING, WAITING, DONE, CANCELLED]
+
+    Timestamp:
+      type: object
+      description: A planning date in the calendar zone.
+      required: [date, time, repeat, warning_days]
+      properties:
+        date: { $ref: "#/components/schemas/Date" }
+        time:
+          type: [string, "null"]
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        repeat:
+          type: [string, "null"]
+          description: Org repeater, e.g. `+1m`, `++1w`, `.+3d`.
+          pattern: "^(\\+|\\+\\+|\\.\\+)[1-9][0-9]{0,2}[hdwmy]$"
+        warning_days:
+          type: [integer, "null"]
+          minimum: 1
+          description: Days before a deadline from which it shows as upcoming.
+
+    TimestampInput:
+      type: object
+      required: [date]
+      additionalProperties: false
+      properties:
+        date: { $ref: "#/components/schemas/Date" }
+        time: { type: [string, "null"], pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+        repeat: { type: [string, "null"], pattern: "^(\\+|\\+\\+|\\.\\+)[1-9][0-9]{0,2}[hdwmy]$" }
+        warning_days: { type: [integer, "null"], minimum: 1, maximum: 365 }
+
+    ProjectRef:
+      type: object
+      required: [id, title]
+      properties:
+        id: { $ref: "#/components/schemas/ID" }
+        title: { type: string }
+
+    AgendaKind:
+      type: string
+      enum: [scheduled, past-scheduled, deadline, upcoming-deadline, event]
+
+    AgendaInfo:
+      type: object
+      required: [kind, date]
+      properties:
+        kind: { $ref: "#/components/schemas/AgendaKind" }
+        date:
+          $ref: "#/components/schemas/Date"
+          description: Date of the timestamp that put the entry on the agenda.
+
+    Task:
+      type: object
+      required: [id, title, state, priority, tags, scheduled, deadline, repeat_to_state,
+                 closed_at, project, body, version, location_hint]
+      properties:
+        id: { $ref: "#/components/schemas/ID" }
+        title: { type: string }
+        state: { $ref: "#/components/schemas/State" }
+        priority: { type: [string, "null"], enum: [A, B, C, null] }
+        tags:
+          type: array
+          items: { type: string }
+        scheduled:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        deadline:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        repeat_to_state: { type: [string, "null"], enum: [TODO, NEXT, null] }
+        closed_at:
+          type: [string, "null"]
+          format: date-time
+          description: When the task was last closed (DONE or CANCELLED), UTC.
+        project:
+          oneOf:
+            - $ref: "#/components/schemas/ProjectRef"
+            - type: "null"
+        body: { type: string }
+        version:
+          type: string
+          description: Opaque; changes whenever the task's entry changes.
+        location_hint:
+          type: string
+          description: File the task is in, for debugging only. Not an identifier; do not rely on it.
+        agenda:
+          $ref: "#/components/schemas/AgendaInfo"
+          description: Present in agenda-based lists (today, overdue).
+
+    AgendaEntry:
+      type: object
+      required: [kind, date, id, title, task]
+      properties:
+        kind: { $ref: "#/components/schemas/AgendaKind" }
+        date: { $ref: "#/components/schemas/Date" }
+        id:
+          oneOf:
+            - $ref: "#/components/schemas/ID"
+            - type: "null"
+        title: { type: string }
+        task:
+          description: The task, or null for an event (an entry without a TODO state).
+          oneOf:
+            - $ref: "#/components/schemas/Task"
+            - type: "null"
+
+    TaskList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+
+    AgendaList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AgendaEntry" }
+
+    CreateTask:
+      type: object
+      required: [title]
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          maxLength: 500
+          description: |
+            One line. Must not start with a priority cookie (`[#A]`) or
+            `COMMENT`, nor end with a tag list (`:tag:`). Active timestamps
+            are stored inactive.
+        body:
+          type: string
+          description: Free text. Stored so it cannot create Org structure; active timestamps are stored inactive.
+        state: { type: string, enum: [TODO, NEXT], default: TODO }
+        priority: { type: string, enum: [A, B, C] }
+        tags:
+          type: array
+          items: { type: string, pattern: "^[A-Za-z0-9_@#%]+$" }
+        scheduled: { $ref: "#/components/schemas/TimestampInput" }
+        deadline: { $ref: "#/components/schemas/TimestampInput" }
+        repeat_to_state:
+          type: string
+          enum: [TODO, NEXT]
+          description: State a repeating task returns to after completion (default NEXT).
+        project_id:
+          $ref: "#/components/schemas/ID"
+          description: A level-1 heading in projects/; the task becomes its last child.
+
+    Transition:
+      type: object
+      required: [expected_state]
+      additionalProperties: false
+      properties:
+        expected_state: { $ref: "#/components/schemas/State" }
+        expected_version:
+          type: string
+          description: The task's `version`; required for repeating tasks.
+
+    TransitionResult:
+      type: object
+      required: [task, warnings]
+      properties:
+        task: { $ref: "#/components/schemas/Task" }
+        warnings:
+          type: array
+          items:
+            type: string
+            enum: [doing_limit_exceeded]
+
+    Meta:
+      type: object
+      required: [calendar_tz, today, doing_limit, version, engine_version]
+      properties:
+        calendar_tz: { type: string, examples: ["Asia/Seoul"] }
+        today: { $ref: "#/components/schemas/Date" }
+        doing_limit: { type: integer, minimum: 1 }
+        version: { type: string }
+        engine_version: { type: string }
+
+    Problem:
+      type: object
+      description: RFC 9457 problem details, with a stable machine-readable `code`.
+      required: [type, title, status, code, detail]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        code:
+          type: string
+          enum: [invalid, not_found, conflict, unauthorized, forbidden, rate_limited,
+                 engine_unavailable, internal]
+        detail: { type: string }
+        actual_state: { $ref: "#/components/schemas/State" }
+        actual_version: { type: string }
+      additionalProperties: true
