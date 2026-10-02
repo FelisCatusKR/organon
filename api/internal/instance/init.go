@@ -24,12 +24,17 @@ type Config struct {
 	DoingLimit int    `json:"doing_limit"`
 }
 
+// nonZones load as a Location but do not name a place: "" and Local are the
+// host zone, and localtime, posixrules and Factory are zoneinfo files the
+// engine rejects (emacs/organon.el, organon-valid-zone-p).
+var nonZones = map[string]bool{"": true, "Local": true, "localtime": true, "posixrules": true, "Factory": true}
+
 // ErrExists is returned when the directory already holds an instance.
 var ErrExists = errors.New("organon.json already exists; refusing to overwrite an existing instance")
 
 // Init creates the layout, an empty inbox and organon.json in dataDir.
 func Init(dataDir string, cfg Config) error {
-	if _, err := time.LoadLocation(cfg.CalendarTZ); err != nil || cfg.CalendarTZ == "" || cfg.CalendarTZ == "Local" {
+	if _, err := time.LoadLocation(cfg.CalendarTZ); err != nil || nonZones[cfg.CalendarTZ] {
 		return fmt.Errorf("invalid calendar time zone %q (use an IANA name such as Asia/Seoul)", cfg.CalendarTZ)
 	}
 	if cfg.DoingLimit <= 0 {

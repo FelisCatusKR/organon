@@ -137,7 +137,8 @@
 (ert-deftest organon-core/invalid-zone-is-named ()
   "time-model: Invalid zone."
   (organon-test-with-instance "basic" "2026-10-02 05:29:00"
-    (dolist (zone '("Mars/Olympus" "../../etc/passwd" "Asia/Seoul;rm"))
+    (dolist (zone '("Mars/Olympus" "../../etc/passwd" "Asia/Seoul;rm"
+                    "localtime" "posixrules" "Factory" "leapseconds" "zone1970.tab"))
       (let ((file-precious-flag nil))
         (with-temp-file (organon-test-file "organon.json")
           (insert (json-serialize `((calendar_tz . ,zone))))))

@@ -62,11 +62,23 @@ so health checks fail instead of the engine silently guessing a time zone.")
         org-id-files nil)
   (organon-load-config))
 
+(defconst organon--non-zones '("localtime" "posixrules" "Factory")
+  "Zone files that are not a place: the host's own zone, a POSIX default
+and the \"-00\" placeholder.")
+
 (defun organon-valid-zone-p (zone)
-  "Non-nil if ZONE names a time zone in the system zoneinfo database."
+  "Non-nil if ZONE names a time zone in the system zoneinfo database.
+Other files there (leapseconds, tzdata.zi, ...) are not TZif data, and Emacs
+would silently treat such a zone as UTC."
   (and (stringp zone)
        (string-match-p "\\`[A-Za-z0-9_+-]+\\(?:/[A-Za-z0-9_+-]+\\)*\\'" zone)
-       (file-regular-p (expand-file-name zone organon-zoneinfo-dir))))
+       (not (member zone organon--non-zones))
+       (let ((file (expand-file-name zone organon-zoneinfo-dir)))
+         (and (file-regular-p file)
+              (with-temp-buffer
+                (set-buffer-multibyte nil)
+                (insert-file-contents-literally file nil 0 4)
+                (equal (buffer-string) "TZif"))))))
 
 (defun organon-load-config ()
   "Read organon.json and apply it.  On failure set `organon-config-error'."
