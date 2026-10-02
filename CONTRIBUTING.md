@@ -34,7 +34,7 @@ that names it, either in a docstring (Elisp) or a comment (Go). Design rationale
 | Level | Who | What |
 |---|---|---|
 | **L1** | you, before opening a PR | the commands below |
-| **L2** | CI, required to merge | specs (including: finished changes are archived) + OpenAPI lint + generated-type drift check + Quadlet dry run, unit tests and ERT on amd64 and arm64, e2e under Docker Compose and rootless Podman (also as UID 12345) |
+| **L2** | CI, required to merge | specs (including: finished changes are archived) + OpenAPI lint + generated-type drift check + Quadlet dry run, unit tests (with the race detector) and ERT on amd64 and arm64, e2e under Docker Compose and rootless Podman (also as UID 12345) |
 | **L3** | maintainer, before a release | real deployment with Quadlet + systemd |
 
 You don't need Podman, systemd or an arm64 machine: if L1 passes and CI is green, you're done.

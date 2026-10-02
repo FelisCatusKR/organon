@@ -1,0 +1,10 @@
+# The image needs only api/ and emacs/ (container/Containerfile). Keeping the
+# rest out also keeps local data, tokens and e2e work directories out of the
+# build context.
+*
+!api/
+!emacs/
+api/organon
+api/bin/
+emacs/**/*.elc
+emacs/**/*.eln
