@@ -1,0 +1,26 @@
+schema: spec-driven
+
+context: |
+  Language: en
+  All artifacts must be written in en.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  Project: Organon - headless Emacs + Org-mode + org-roam exposed through a
+  small, stable Personal API (Go, stdlib only). Org files are the only source
+  of truth; every database is a rebuildable cache. The design rationale,
+  security boundary, time model and measured spike results live in
+  docs/architecture.md (Korean); specs here are the behavioral contract and
+  win if the two disagree.
+
+  Non-negotiables: never reimplement what Org/org-roam already does (parser,
+  TODO states, repeaters, agenda, IDs, backlinks); no arbitrary Elisp
+  evaluation path; API clients never touch files; dates are computed by Org,
+  not by API code.
+
+rules:
+  specs:
+    - Every requirement has at least one WHEN/THEN scenario that can be turned into an automated test.
+    - Describe observable behavior (API, files on disk), not Elisp internals.
+  tasks:
+    - Each task names the scenario(s) or test it satisfies.
+    - Keep tasks small enough to finish and verify in one sitting.

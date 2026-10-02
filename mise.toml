@@ -1,0 +1,7 @@
+# Development toolchain. Run `mise install` once; CI uses the same file.
+# Emacs/Org/org-roam are NOT managed here: they are pinned as Debian packages
+# inside the container image, and Elisp tests run inside that image.
+[tools]
+go = "1.27.1"
+node = "24.21.0"
+"npm:@fission-ai/openspec" = "1.14.0"
