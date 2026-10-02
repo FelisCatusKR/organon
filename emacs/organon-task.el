@@ -41,8 +41,9 @@ agenda, and a diary sexp (<%%(...)> or %%(...)) is evaluated by the agenda."
     (organon-signal "invalid" (format "title must be at most %d characters" organon-title-max-length)))
   (let ((title (string-trim title))
         (case-fold-search nil))
-    (when (string-match-p "\\`\\[#[^]]*\\]" title)
-      (organon-signal "invalid" "title must not start with a priority cookie"))
+    ;; `org-priority' finds a cookie anywhere in the headline, not only first.
+    (when (string-match-p "\\[#[^]]*\\]" title)
+      (organon-signal "invalid" "title must not contain a priority cookie such as [#A]"))
     (when (string-match-p "\\`COMMENT\\_>" title)
       (organon-signal "invalid" "title must not start with COMMENT"))
     (when (string-match-p "\\(?:\\`\\|[ \t]\\):[[:alnum:]_@#%:]+:\\'" title)
@@ -50,9 +51,9 @@ agenda, and a diary sexp (<%%(...)> or %%(...)) is evaluated by the agenda."
     (organon--deactivate-timestamps title)))
 
 (defconst organon--structural-line-regexp
-  "^\\([ \t]*\\)\\(,*\\(?:\\*\\|#\\+\\|:[[:alnum:]_-]*:\\|&?%%(\\)\\)"
+  "^\\([ \t]*\\)\\(,*\\(?:\\*\\|#\\+\\|:[[:alnum:]_-]*:\\|CLOCK:\\|&?%%(\\)\\)"
   "Lines Org would read as structure inside an entry: headings, #+ keywords,
-drawer boundaries and diary sexps (the agenda also evaluates `&%%(', see
+drawer boundaries, clock entries and diary sexps (the agenda also evaluates `&%%(', see
 `org-agenda-get-sexps').  Org's own convention for literal text
 (`org-escape-code-in-string') prefixes such lines with a comma.")
 
@@ -66,7 +67,7 @@ drawer boundaries and diary sexps (the agenda also evaluates `&%%(', see
 (defun organon-unescape-body (text)
   "Inverse of `organon-escape-body' (except for deactivated timestamps)."
   (replace-regexp-in-string
-   "^\\([ \t]*\\),\\(,*\\(?:\\*\\|#\\+\\|:[[:alnum:]_-]*:\\|&?%%(\\)\\)" "\\1\\2" text t))
+   "^\\([ \t]*\\),\\(,*\\(?:\\*\\|#\\+\\|:[[:alnum:]_-]*:\\|CLOCK:\\|&?%%(\\)\\)" "\\1\\2" text t))
 
 (defun organon--param-body (params)
   (let ((body (organon-param-string params 'body)))
@@ -81,6 +82,8 @@ drawer boundaries and diary sexps (the agenda also evaluates `&%%(', see
           (t (mapcar (lambda (tag)
                        (unless (and (stringp tag) (string-match-p "\\`[[:alnum:]_@#%]+\\'" tag))
                          (organon-signal "invalid" (format "invalid tag %S (letters, digits, _@#%% only)" tag)))
+                       (when (equal tag org-archive-tag)
+                         (organon-signal "invalid" (format "tag %s hides a task from the agenda" tag)))
                        tag)
                      tags)))))
 
@@ -476,13 +479,27 @@ copy any marker it keeps."
       (vconcat (and files (org-map-entries #'organon-task-json "TODO=\"WAITING\"" 'agenda))))))
 
 (defun organon--log-line-done-p (marker)
-  "Non-nil if the LOGBOOK line at MARKER records a change into DONE."
+  "Non-nil if MARKER is on a state change into DONE inside a LOGBOOK drawer.
+Org's log mode finds such lines anywhere in an entry, so a body line with the
+same text would count too."
   (with-current-buffer (marker-buffer marker)
     (save-excursion
       (goto-char marker)
       (beginning-of-line)
       ;; The line format is Org's `org-log-note-headings' entry for `state'.
-      (looking-at-p "[ \t]*- State \"DONE\""))))
+      (and (looking-at-p "[ \t]*- State \"DONE\"")
+           (let ((drawer (org-element-lineage (org-element-at-point) '(drawer) t)))
+             (and drawer (equal (org-element-property :drawer-name drawer) "LOGBOOK")))))))
+
+(defun organon--closed-done-p (marker)
+  "Non-nil if MARKER is on the planning line of a DONE task.
+A CLOSED stamp is also written for CANCELLED, and Org's log mode also finds
+\"CLOSED:\" text in titles and bodies."
+  (with-current-buffer (marker-buffer marker)
+    (save-excursion
+      (goto-char marker)
+      (and (org-at-planning-p)
+           (progn (org-back-to-heading t) (equal (organon-task-state) "DONE"))))))
 
 (organon-defmethod "tasks.completed" (params)
   "Tasks completed (moved to DONE) on the date, including repeating tasks.
@@ -495,13 +512,10 @@ Uses the agenda's log mode, i.e. the CLOSED stamps and LOGBOOK lines Org wrote."
        (let ((type (get-text-property (point) 'type))
              (heading (get-text-property (point) 'org-hd-marker))
              (log-line (get-text-property (point) 'org-marker)))
-         (when (pcase type
-                 ("state" (and log-line (organon--log-line-done-p log-line)))
-                 ;; A CLOSED stamp is also written for CANCELLED; count it only
-                 ;; while the task is DONE.
-                 ("closed" (with-current-buffer (marker-buffer heading)
-                             (save-excursion (goto-char heading)
-                                             (equal (org-get-todo-state) "DONE")))))
+         (when (and log-line
+                    (pcase type
+                      ("state" (organon--log-line-done-p log-line))
+                      ("closed" (organon--closed-done-p log-line))))
            (push (copy-marker heading) markers)))))
     (let (seen result)
       (dolist (marker (nreverse markers))

@@ -103,9 +103,30 @@
 (ert-deftest organon-task/structural-titles-are-invalid ()
   "task-lifecycle: Title that Org would parse as structure."
   (organon-test-with-instance "basic" organon-test-clock
-    (dolist (title '("[#A] pay rent" "COMMENT pay rent" "pay rent :bills:" ":bills:"))
+    (dolist (title '("[#A] pay rent" "pay [#C] rent" "COMMENT pay rent" "pay rent :bills:" ":bills:"))
       (should (equal (organon-test-error-code "task.create" `((title . ,title))) "invalid")))
     (should (equal (organon-test-file-string "org/tasks/inbox.org") "#+title: Inbox\n"))))
+
+(ert-deftest organon-task/archive-tag-is-invalid ()
+  "task-lifecycle: Archive tag."
+  (organon-test-with-instance "basic" organon-test-clock
+    (should (equal (organon-test-error-code "task.create" '((title . "Hidden") (tags . ["ARCHIVE"])))
+                   "invalid"))
+    (should (equal (organon-test-file-string "org/tasks/inbox.org") "#+title: Inbox\n"))))
+
+(ert-deftest organon-task/body-that-looks-like-metadata ()
+  "task-lifecycle: Body that looks like metadata."
+  (organon-test-with-instance "basic" organon-test-clock
+    (let* ((body "CLOCK: [2026-10-02 Fri 09:00]--[2026-10-02 Fri 10:00] =>  1:00\nreal text")
+           (task (organon-test-result "task.create" `((title . "Clocked") (body . ,body))))
+           (marker (organon-find-id (alist-get 'id task))))
+      (should (equal (alist-get 'body task) body))
+      (should (equal (alist-get 'body (organon-test-result "task.get" `((id . ,(alist-get 'id task))))) body))
+      ;; Org sees no clock entry under the heading.
+      (with-current-buffer (marker-buffer marker)
+        (save-excursion
+          (goto-char marker)
+          (should (= (org-clock-sum-current-item) 0)))))))
 
 (ert-deftest organon-task/body-that-looks-like-structure ()
   "task-lifecycle: Body that looks like a heading."
