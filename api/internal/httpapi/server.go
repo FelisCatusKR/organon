@@ -62,7 +62,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/tasks", s.authorize(write, s.createTask))
 	mux.Handle("POST /api/v1/tasks/{id}/{action}", s.authorize(write, s.transition))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		writeProblem(w, http.StatusNotFound, "not_found", "no such endpoint", nil)
+		writeProblem(w, http.StatusNotFound, model.ProblemCodeNotFound, "no such endpoint", nil)
 	})
 	return s.logRequests(mux)
 }
@@ -75,7 +75,7 @@ func (s *Server) authorize(scope string, h http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		addr := s.clientAddr(r)
 		if s.Limiter.Blocked(addr) {
-			writeProblem(w, http.StatusTooManyRequests, "rate_limited",
+			writeProblem(w, http.StatusTooManyRequests, model.ProblemCodeRateLimited,
 				"too many failed authentication attempts; try again later", nil)
 			return
 		}
@@ -83,11 +83,11 @@ func (s *Server) authorize(scope string, h http.HandlerFunc) http.Handler {
 		if tok == nil {
 			s.Limiter.Fail(addr)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="organon"`)
-			writeProblem(w, http.StatusUnauthorized, "unauthorized", "missing or invalid bearer token", nil)
+			writeProblem(w, http.StatusUnauthorized, model.ProblemCodeUnauthorized, "missing or invalid bearer token", nil)
 			return
 		}
 		if !tok.Has(scope) {
-			writeProblem(w, http.StatusForbidden, "forbidden", "token lacks scope "+scope, nil)
+			writeProblem(w, http.StatusForbidden, model.ProblemCodeForbidden, "token lacks scope "+scope, nil)
 			return
 		}
 		h(w, r.WithContext(context.WithValue(r.Context(), tokenKey{}, tok)))
@@ -141,7 +141,7 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 func writeJSON(w http.ResponseWriter, status int, v any) []byte {
 	body, err := json.Marshal(v)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "internal", "could not encode the response", nil)
+		writeProblem(w, http.StatusInternalServerError, model.ProblemCodeInternal, "could not encode the response", nil)
 		return nil
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -152,17 +152,23 @@ func writeJSON(w http.ResponseWriter, status int, v any) []byte {
 
 // writeProblem writes an RFC 9457 problem document. ext adds extension members
 // (for example actual_state on a conflict).
-func writeProblem(w http.ResponseWriter, status int, code, detail string, ext map[string]any) {
-	doc := map[string]any{}
+func writeProblem(w http.ResponseWriter, status int, code model.ProblemCode, detail string, ext map[string]any) {
+	p := model.Problem{Type: "about:blank", Title: http.StatusText(status), Status: status, Code: code, Detail: detail}
 	for k, v := range ext {
-		doc[k] = v
+		switch s, _ := v.(string); k {
+		case "actual_state":
+			state := model.State(s)
+			p.ActualState = &state
+		case "actual_version":
+			p.ActualVersion = &s
+		default:
+			if p.AdditionalProperties == nil {
+				p.AdditionalProperties = map[string]any{}
+			}
+			p.AdditionalProperties[k] = v
+		}
 	}
-	doc["type"] = "about:blank"
-	doc["title"] = http.StatusText(status)
-	doc["status"] = status
-	doc["code"] = code
-	doc["detail"] = detail
-	body, _ := json.Marshal(doc)
+	body, _ := json.Marshal(p)
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
 	w.Write(body)
@@ -175,22 +181,22 @@ func (s *Server) writeEngineError(w http.ResponseWriter, r *http.Request, err er
 	var rpcErr *rpc.Error
 	if !errors.As(err, &rpcErr) {
 		s.logEngineError(r, "internal", err)
-		writeProblem(w, http.StatusInternalServerError, "internal", "internal error", nil)
+		writeProblem(w, http.StatusInternalServerError, model.ProblemCodeInternal, "internal error", nil)
 		return
 	}
 	switch rpcErr.Code {
 	case rpc.CodeInvalid:
-		writeProblem(w, http.StatusUnprocessableEntity, "invalid", rpcErr.Message, rpcErr.Data)
+		writeProblem(w, http.StatusUnprocessableEntity, model.ProblemCodeInvalid, rpcErr.Message, rpcErr.Data)
 	case rpc.CodeNotFound:
-		writeProblem(w, http.StatusNotFound, "not_found", rpcErr.Message, rpcErr.Data)
+		writeProblem(w, http.StatusNotFound, model.ProblemCodeNotFound, rpcErr.Message, rpcErr.Data)
 	case rpc.CodeConflict:
-		writeProblem(w, http.StatusConflict, "conflict", rpcErr.Message, rpcErr.Data)
+		writeProblem(w, http.StatusConflict, model.ProblemCodeConflict, rpcErr.Message, rpcErr.Data)
 	case rpc.CodeUnavailable:
 		s.logEngineError(r, rpcErr.Code, err)
-		writeProblem(w, http.StatusServiceUnavailable, "engine_unavailable", "the engine is unavailable", nil)
+		writeProblem(w, http.StatusServiceUnavailable, model.ProblemCodeEngineUnavailable, "the engine is unavailable", nil)
 	default:
 		s.logEngineError(r, rpcErr.Code, err)
-		writeProblem(w, http.StatusInternalServerError, "internal", "internal error", nil)
+		writeProblem(w, http.StatusInternalServerError, model.ProblemCodeInternal, "internal error", nil)
 	}
 }
 
@@ -201,7 +207,7 @@ func (s *Server) logEngineError(r *http.Request, code string, err error) {
 }
 
 func invalid(w http.ResponseWriter, detail string) {
-	writeProblem(w, http.StatusUnprocessableEntity, "invalid", detail, nil)
+	writeProblem(w, http.StatusUnprocessableEntity, model.ProblemCodeInvalid, detail, nil)
 }
 
 // ---- input validation -----------------------------------------------------------
@@ -371,7 +377,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 			invalid(w, "Idempotency-Key was already used with a different request body")
 			return
 		case idem.InProgress:
-			writeProblem(w, http.StatusConflict, "conflict", "a request with this Idempotency-Key is in progress", nil)
+			writeProblem(w, http.StatusConflict, model.ProblemCodeConflict, "a request with this Idempotency-Key is in progress", nil)
 			return
 		}
 	}
@@ -402,7 +408,7 @@ func (s *Server) transition(w http.ResponseWriter, r *http.Request) {
 	}
 	action := r.PathValue("action")
 	if !actions[action] {
-		writeProblem(w, http.StatusNotFound, "not_found", "unknown action "+action, nil)
+		writeProblem(w, http.StatusNotFound, model.ProblemCodeNotFound, "unknown action "+action, nil)
 		return
 	}
 	var req model.Transition
