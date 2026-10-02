@@ -56,8 +56,13 @@ SHALL be UUIDs.
 - **THEN** the title and body are stored verbatim as text and no command runs
 
 ### Requirement: HTTP contract is published
-The API SHALL ship an OpenAPI 3.1 document describing every `/api/v1` endpoint, and responses SHALL conform to it.
+The API SHALL ship an OpenAPI 3.1 document describing every `/api/v1` endpoint. The document SHALL be the source
+of the API's JSON types (they are generated from it), and responses SHALL conform to it.
 
 #### Scenario: Responses match the schema
 - **WHEN** the e2e suite runs
 - **THEN** every recorded response validates against `api/openapi.yaml`
+
+#### Scenario: Generated types match the contract
+- **WHEN** CI regenerates the Go types from `api/openapi.yaml`
+- **THEN** the result is identical to the committed code

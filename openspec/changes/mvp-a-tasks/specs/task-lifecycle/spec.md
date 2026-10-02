@@ -55,12 +55,22 @@ repeaters apply.
 - **THEN** its LOGBOOK contains one timestamped state-change line for each transition
 
 ### Requirement: Optimistic concurrency on transitions
-Every transition request SHALL carry `expected_state`. If it differs from the stored state, the API SHALL
-reject the request with `409` and leave the file unchanged.
+Every task SHALL carry an opaque `version` that changes whenever its entry changes. Every transition request
+SHALL carry `expected_state`, and SHALL also carry `expected_version` when the task repeats (a repeating task
+returns to an open state, so the state alone cannot detect a retry). On any mismatch the API SHALL reject the
+request with `409` and leave the file unchanged.
 
-#### Scenario: Retried completion is rejected
+#### Scenario: Retried completion of a non-repeating task
 - **WHEN** a client repeats an identical `complete` request after the first one succeeded
-- **THEN** the second response is `409` and the task's dates and LOGBOOK are unchanged by it
+- **THEN** the second response is `409` with the actual state `DONE` and the file is unchanged by it
+
+#### Scenario: Retried completion of a repeating task
+- **WHEN** a client completes a repeating task with `expected_state` and `expected_version` and then repeats the identical request
+- **THEN** the second response is `409` and the dates moved exactly once
+
+#### Scenario: Repeating task without expected_version
+- **WHEN** a transition request for a repeating task has no `expected_version`
+- **THEN** the response is `422` and the file is unchanged
 
 #### Scenario: Missing expected_state
 - **WHEN** a transition request has no `expected_state`
@@ -87,18 +97,23 @@ perform the transition and SHALL include the warning `doing_limit_exceeded` in t
 - **THEN** the response is `200`, the task is `DOING`, and `warnings` contains `doing_limit_exceeded`
 
 ### Requirement: Text input cannot alter Org structure
-Titles SHALL be a single line of at most 500 characters. Body text SHALL be stored so that it cannot create
-headings, keywords, drawers or agenda entries, and SHALL be returned as the client sent it except that active
-timestamps are converted to inactive ones.
+Titles SHALL be a single line of at most 500 characters and SHALL be rejected if Org would read part of them as
+structure (a leading priority cookie or `COMMENT`, a trailing tag list). Bodies SHALL be stored so they cannot
+create headings, keywords, drawers or diary entries. In both, active timestamps and diary sexps SHALL be made
+inactive; otherwise text SHALL be returned exactly as sent.
 
 #### Scenario: Title with a newline
 - **WHEN** a title contains a newline
 - **THEN** the response is `422`
 
+#### Scenario: Title that Org would parse as structure
+- **WHEN** a title is `[#A] pay rent`, `COMMENT pay rent` or `pay rent :bills:`
+- **THEN** the response is `422` and no file is modified
+
 #### Scenario: Body that looks like a heading
 - **WHEN** a task body contains the line `* NEXT injected`
 - **THEN** the file contains exactly one new heading (the task itself) and `GET` returns the body with the line `* NEXT injected` intact
 
-#### Scenario: Body with an active timestamp
-- **WHEN** a task body contains `<2026-10-02 Fri>`
-- **THEN** the body is stored and returned as `[2026-10-02 Fri]` and the body does not produce an agenda entry
+#### Scenario: Active timestamps in title and body
+- **WHEN** a task title contains `<2026-10-02 Fri>` and its body contains `<2026-10-02 Fri>` and `<%%(diary-float t 4 2)>`
+- **THEN** they are stored and returned as `[2026-10-02 Fri]` and `[%%(diary-float t 4 2)>`, no agenda entry comes from them, and no diary expression is evaluated

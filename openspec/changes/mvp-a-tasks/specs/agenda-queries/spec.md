@@ -8,9 +8,10 @@ events) as JSON queries, without reimplementing agenda logic.
 ## ADDED Requirements
 
 ### Requirement: Agenda for a date
-`GET /api/v1/agenda?date=YYYY-MM-DD` SHALL return every entry Org Agenda shows for that single day, each with
-a `kind` of `scheduled`, `past-scheduled`, `deadline`, `upcoming-deadline` or `event`. When `date` is omitted,
-the instance's current calendar date SHALL be used.
+`GET /api/v1/agenda?date=YYYY-MM-DD` SHALL return every entry Org Agenda shows for that single day when that
+day is the current day (so deadline warnings and overdue items apply to it), each with a `kind` of `scheduled`,
+`past-scheduled`, `deadline`, `upcoming-deadline` or `event`. When `date` is omitted, the instance's current
+calendar date SHALL be used.
 
 #### Scenario: Kinds on a fixed day
 - **GIVEN** the calendar date is 2026-10-02 and the fixture contains: a task scheduled 2026-10-02 15:00, a task scheduled 2026-09-29, a task with deadline 2026-09-28, a task with deadline 2026-10-07, and a plain heading with timestamp `<2026-10-02 Fri 19:00>`

@@ -56,6 +56,19 @@ reads entry fields at the marker. `overdue` is a filter on those results. `waiti
 LOGBOOK entries Org itself wrote. `org-agenda-files` is computed per call by a recursive listing of
 `org/tasks/` and `org/projects/`.
 
+Findings from implementation:
+- Org shows deadline warnings, carried-over schedules and overdue deadlines only
+  on the current day's agenda. A query for a date therefore binds `org-today` to
+  that date while Org builds the agenda: "the agenda as Org would show it if that
+  day were today". Every rule is still Org's.
+- Org releases agenda markers when the agenda buffer is killed, so collected
+  markers are copied.
+- **Completed (Risk 1 resolved):** agenda log mode works. `state` lines are
+  counted when the LOGBOOK line they point to records `State "DONE"`, and
+  `closed` lines are counted while the task is `DONE` (CANCELLED also gets a
+  CLOSED stamp). Results are deduplicated by ID. The `org-element` fallback is
+  not needed.
+
 ### D5. Timestamps are assembled from validated parts, placed by Org
 The API validates `date` (calendar-valid), `time` (`HH:MM`), `repeat` (`^(\+|\+\+|\.\+)[1-9][0-9]*[hdwmy]$`)
 and `warning_days` (1–365). The engine builds `"<DATE[ TIME][ REPEAT][ -Nd]>"` and calls
@@ -85,10 +98,17 @@ secret) has one entry per line: `<name> <scope,scope> <sha256-hex>`. The rate-li
 `ORGANON_CLIENT_IP_HEADER` when set (e.g. `CF-Connecting-IP` behind cloudflared) and the TCP peer otherwise.
 Idempotency keys are held in an in-memory LRU (10,000 entries, 24 h).
 
-### D9. Production binary is stdlib-only; tests may use libraries
-The `organon` binary imports only the standard library. Test code may depend on an OpenAPI validator
-(`kin-openapi`) to check e2e responses against `api/openapi.yaml`. `openapi.yaml` is hand-written and is
-the source; no code generation.
+### D9. The contract generates the types; the binary stays stdlib-only
+`api/openapi.yaml` is hand-written and is the source. The Go JSON types (`internal/model/model.gen.go`) are
+generated from it with `oapi-codegen` (models only, pinned as a Go `tool` dependency). CI regenerates them
+and fails on any diff, so the code cannot drift from the contract at the type level. Responses are also
+validated against the document in unit tests and in every e2e exchange (`libopenapi-validator`, test code
+only). The generated code imports only the standard library, so the production binary has no third-party
+dependencies.
+- *Alternative*: generating the document from code (annotations or a framework such as huma). Rejected:
+  it makes the code the source of the long-term contract, and the frameworks are not stdlib-only.
+- *Generator constraint found*: oapi-codegen cannot resolve `$ref`s into nested properties, so shared enums
+  (`AgendaKind`) are named schemas.
 
 ### D10. Image targets
 One Containerfile with stages `build` (Go), `runtime` (trixie-slim + `emacs-nox`, `elpa-org-roam`,
@@ -111,9 +131,8 @@ The Pi has rootless Podman. `scripts/e2e.sh --runtime compose` works locally wit
 
 ## Risks / Trade-offs
 
-- [Agenda log mode may not report repeating-task completions the way D4 assumes] → Verify first in task group
-  4. Fallback: walk agenda-source entries and read LOGBOOK state lines with `org-element` (still Org's parser,
-  not regex).
+- [Agenda log mode may not report repeating-task completions the way D4 assumes] → Verified in task 5.3: it
+  does (see D4).
 - [`org-deadline` string parsing may reinterpret partial timestamps] → ERT golden tests for every repeater and
   warning form. Fallback: `org-add-planning-info` with an explicit time value.
 - [Emacs is single-threaded; a slow agenda blocks writes] → Measured 0.33 s for 300 tasks. The API timeout
@@ -129,7 +148,24 @@ The Pi has rootless Podman. `scripts/e2e.sh --runtime compose` works locally wit
 Greenfield, nothing to migrate. Rollback is removing the containers; the data directory is untouched by
 design.
 
-## Open Questions
+### D12a. Retry safety needs an entry version
+A repeating task returns to an open state after completion, so `expected_state` cannot detect a retried
+`complete`. Every task carries `version` (a SHA-256 prefix of its entry text). Transitions on repeating tasks
+require `expected_version`. Idempotency keys in the API cannot cover this case: when the engine finishes after
+the API has timed out, a retry with the same key would run again.
 
-- License (MIT / Apache-2.0 / AGPL-3.0). Needed before the repository is made public; does not affect this
-  change.
+### D12b. Engine hygiene found while testing
+- `org-modules` is empty. The defaults load Gnus, IRC and EWW link support, which pull in D-Bus.
+- `org-clock` is loaded at startup. Repeaters load it lazily, and its first load probes logind over D-Bus.
+- D-Bus addresses point nowhere, both in the image and in the test runner.
+- Runtime native compilation is disabled from `site-start.d`. `debian-startup` is compiled ahead of time
+  because it loads before any site-start file.
+- libfaketime must not fake file times (`NO_FAKE_STAT=1`), or Emacs cannot detect changes on disk.
+
+### D13. License: MIT
+All project code (Go and Elisp) is MIT. The Go API talks to Emacs only over a socket and is a separate
+program. `organon.el` is loaded into GPL-3.0 Emacs; MIT is GPL-compatible, so the combined work is
+distributable under GPL terms while the file itself stays MIT. Shipping Emacs inside the image is mere
+aggregation (GPLv3 §5) and does not relicense our code. Our obligation as distributor of the GPL binaries
+(GPLv3 §6) is handled when public images are published, which is outside this change: record exact Debian
+package versions in the image and point to snapshot.debian.org in the README.
