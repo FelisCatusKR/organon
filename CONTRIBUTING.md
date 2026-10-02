@@ -32,6 +32,7 @@ a code tree that already passed. Working alone, you can push the archive togethe
 
 Tasks list only work you can verify yourself (a test, a command, a file). Do not add "CI is green" or
 "the PR run shows ...": CI is already required to merge, and a change is archived before it merges.
+
 To change the HTTP API, edit `api/openapi.yaml` and run
 `mise run generate`: the Go types in `api/internal/model/model.gen.go` are generated from it (never edit them
 by hand; CI fails if they are out of date). **Every scenario in a spec has at least one test**
