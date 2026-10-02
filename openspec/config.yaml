@@ -24,3 +24,4 @@ rules:
   tasks:
     - Each task names the scenario(s) or test it satisfies.
     - Keep tasks small enough to finish and verify in one sitting.
+    - Only list work that can be verified locally; never "CI is green" or results of a pull request run (CI already gates the merge, and a change is archived before it merges).

@@ -17,16 +17,25 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Decides whether the expensive jobs need to run. Documentation and spec-only
-  # changes (docs/, openspec/, .claude/, *.md, LICENSE) run only `contracts`.
+  # Decides whether the expensive jobs (unit, e2e) need to run. They are
+  # skipped when either
+  # - the change only touches documentation and specs (docs/, openspec/,
+  #   .claude/, *.md, LICENSE) compared with the PR base or the previous main, or
+  # - exactly this code tree already passed unit and e2e: `mark-tested` saves a
+  #   cache entry keyed by a hash of every file outside those paths in the tree
+  #   CI checked out (for a PR, the merge with the current base). An
+  #   archive-only commit after review therefore costs no test run, while a
+  #   moved base produces a different tree and runs everything again.
+  # Caches written by pull requests are invisible to main, so a commit on main is
+  # always tested (and published) for real.
   # Jobs are skipped with `if:` rather than path filters on the workflow, so that
   # required checks report "skipped" (which counts as passing) instead of
-  # staying pending. The comparison is against the PR base, so a docs-only
-  # commit on top of a code PR still runs everything.
+  # staying pending.
   changes:
     runs-on: ubuntu-24.04
     outputs:
-      code: ${{ steps.diff.outputs.code }}
+      code: ${{ steps.decide.outputs.code }}
+      tree: ${{ steps.tree.outputs.hash }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,6 +54,42 @@ jobs:
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
+      - id: tree
+        run: |
+          hash=$(git ls-tree -r HEAD \
+            | awk -F '\t' '$2 !~ /^(docs\/|openspec\/|\.claude\/)|\.md$|^LICENSE$/' \
+            | sha256sum | cut -c1-40)
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "code tree: $hash"
+      - id: tested
+        if: steps.diff.outputs.code == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci-tested
+          key: tested-${{ steps.tree.outputs.hash }}
+          lookup-only: true
+      - id: decide
+        env:
+          DIFF: ${{ steps.diff.outputs.code }}
+          HIT: ${{ steps.tested.outputs.cache-hit }}
+        run: |
+          if [ "$DIFF" = true ] && [ "$HIT" = true ]; then
+            echo "this code tree already passed unit and e2e; skipping them"
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=$DIFF" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Merge gate, kept separate so that its failure reads as "archive pending",
+  # not as a broken build: a change whose tasks are all done must be archived
+  # (openspec archive / /opsx:archive) before the pull request merges.
+  archived:
+    name: "openspec: changes archived"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+      - run: mise run spec:check-archived
 
   contracts:
     name: specs, OpenAPI, Quadlet
@@ -53,8 +98,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
       - run: mise run spec:validate
-      - name: Finished OpenSpec changes are archived
-        run: mise run spec:check-archived
       - run: mise run lint:openapi
       - name: Generated Go types match the contract
         run: mise run check:generated
@@ -121,6 +164,18 @@ jobs:
       - name: e2e as UID 12345
         if: matrix.runtime == 'podman'
         run: mise exec -- scripts/e2e.sh --runtime podman --uid 12345 -- -v
+
+  # Records that this code tree passed unit and e2e (see `changes`).
+  mark-tested:
+    needs: [changes, unit, e2e]
+    if: needs.unit.result == 'success' && needs.e2e.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "${{ needs.changes.outputs.tree }}" > .ci-tested
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ci-tested
+          key: tested-${{ needs.changes.outputs.tree }}
 
   # Publishes every commit on main that passed CI to GHCR as one multi-arch
   # image tagged `sha-<7>` and `main` (openspec/specs/deployment: Published
