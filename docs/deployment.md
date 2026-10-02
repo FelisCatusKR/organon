@@ -75,6 +75,38 @@ socket (`DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock`). Either way, s
 For containers managed by systemd, there are Quadlet units in [`contrib/quadlet/`](../contrib/quadlet/). They
 are an example, not the supported path.
 
+## Custom deployments
+
+`compose.yaml` and `contrib/quadlet/` implement a small container interface. It is declared in
+[`contrib/container-interface.json`](../contrib/container-interface.json), and CI checks both definitions
+against it. Your own unit files can rely on the same interface:
+
+| | Engine | API |
+|---|---|---|
+| Command | `emacs -q --fg-daemon -l /opt/organon/emacs/init.el -f organon-start` | `organon serve` |
+| Health check | `organon rpc-ping` | `organon healthcheck` (`GET /healthz`) |
+| Mounts | `/data` (your data), `/cache` (rebuildable), `/run/organon` (the socket, shared) | `/run/organon` only, never `/data` |
+| Other writable paths | a tmpfs at `/tmp`; the root filesystem may be read-only | none |
+| Network | none (loopback only) | wherever clients reach it |
+| Environment | none needed | `ORGANON_LISTEN` (e.g. `0.0.0.0:8080`; the default `127.0.0.1:8080` is unreachable from outside the container), `ORGANON_TOKENS_FILE`; optional `ORGANON_CLIENT_IP_HEADER`, `ORGANON_ENGINE_TIMEOUT` (default `10s`) |
+
+- **User.** Both containers run as any non-root UID, and the image default is `1000:1000`. Use the same UID for
+  both containers, because they share the socket. That UID should also own the data directory: rootless Podman
+  maps your user onto the default with `--userns keep-id:uid=1000,gid=1000`.
+- **Setup.**
+  - `organon init --calendar-tz ZONE` creates a data directory. It refuses to overwrite an existing instance.
+  - `organon token new` prints a token and its tokens-file line.
+  - The tokens file has one `name scopes sha256` line per client; lines starting with `#` are comments.
+- **No implicit initialization.** Without `organon.json`, the engine stays unhealthy and creates nothing.
+  Keep `init` a separate, deliberate step. Running it automatically in the start command would turn a wrong
+  or empty data mount into a new, empty instance: your data would seem gone, and new writes would land in
+  the wrong place.
+- **Changes.** A change to this interface is a breaking change. Its pull request title carries `!` (for
+  example `feat(deploy)!: …`) and the `breaking` label, and CI enforces the title marker. To list them, run
+  `git log --first-parent --grep '!:' origin/main`.
+- **Tracking `:main`.** A stated interface does not stop images from changing underneath you. For a custom
+  deployment, pin a `sha-` tag and update it through a reviewed change, for example with Renovate.
+
 ## Exposing it
 
 The API binds to `127.0.0.1` by default. To reach it from elsewhere, put a TLS-terminating reverse proxy or a

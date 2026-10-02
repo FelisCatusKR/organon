@@ -1,0 +1,21 @@
+{
+  "$comment": "What deployment definitions rely on: compose.yaml, contrib/quadlet/ and your own units. Checked by scripts/check-deploy-interface.sh, used by the Podman e2e, described in docs/deployment.md. Changing it breaks custom deployments: mark the pull request title with '!' (CONTRIBUTING.md).",
+  "engine": {
+    "command": ["emacs", "-q", "--fg-daemon", "-l", "/opt/organon/emacs/init.el", "-f", "organon-start"],
+    "healthcheck": ["organon", "rpc-ping"],
+    "mounts": ["/cache", "/data", "/run/organon"],
+    "tmpfs": ["/tmp"],
+    "network": "none",
+    "environment": { "required": [], "optional": [] }
+  },
+  "api": {
+    "command": ["organon", "serve"],
+    "healthcheck": ["organon", "healthcheck"],
+    "mounts": ["/run/organon"],
+    "tmpfs": [],
+    "environment": {
+      "required": ["ORGANON_LISTEN", "ORGANON_TOKENS_FILE"],
+      "optional": ["ORGANON_CLIENT_IP_HEADER", "ORGANON_ENGINE_TIMEOUT"]
+    }
+  }
+}
