@@ -50,9 +50,10 @@ agenda, and a diary sexp (<%%(...)> or %%(...)) is evaluated by the agenda."
     (organon--deactivate-timestamps title)))
 
 (defconst organon--structural-line-regexp
-  "^\\([ \t]*\\)\\(,*\\(?:\\*\\|#\\+\\|:[[:alnum:]_-]*:\\|%%(\\)\\)"
+  "^\\([ \t]*\\)\\(,*\\(?:\\*\\|#\\+\\|:[[:alnum:]_-]*:\\|&?%%(\\)\\)"
   "Lines Org would read as structure inside an entry: headings, #+ keywords,
-drawer boundaries and diary sexps.  Org's own convention for literal text
+drawer boundaries and diary sexps (the agenda also evaluates `&%%(', see
+`org-agenda-get-sexps').  Org's own convention for literal text
 (`org-escape-code-in-string') prefixes such lines with a comma.")
 
 (defun organon-escape-body (body)
@@ -65,7 +66,7 @@ drawer boundaries and diary sexps.  Org's own convention for literal text
 (defun organon-unescape-body (text)
   "Inverse of `organon-escape-body' (except for deactivated timestamps)."
   (replace-regexp-in-string
-   "^\\([ \t]*\\),\\(,*\\(?:\\*\\|#\\+\\|:[[:alnum:]_-]*:\\|%%(\\)\\)" "\\1\\2" text t))
+   "^\\([ \t]*\\),\\(,*\\(?:\\*\\|#\\+\\|:[[:alnum:]_-]*:\\|&?%%(\\)\\)" "\\1\\2" text t))
 
 (defun organon--param-body (params)
   (let ((body (organon-param-string params 'body)))

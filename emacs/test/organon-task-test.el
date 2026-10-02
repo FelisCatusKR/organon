@@ -125,12 +125,12 @@
            (task (organon-test-result
                   "task.create"
                   `((title . "Meet <2026-10-02 Fri>")
-                    (body . ,(format "at <2026-10-02 Fri 19:00>\n<%%%%(diary-float t 4 2)>\n%%%%(progn (write-region \"x\" nil %S) t)"
-                                     marker))))))
+                    (body . ,(format "at <2026-10-02 Fri 19:00>\n<%%%%(diary-float t 4 2)>\n%%%%(progn (write-region \"x\" nil %S) t)\n&%%%%(progn (write-region \"x\" nil %S) t)"
+                                     marker marker))))))
       (should (equal (alist-get 'title task) "Meet [2026-10-02 Fri]"))
       (should (equal (alist-get 'body task)
-                     (format "at [2026-10-02 Fri 19:00]\n[%%%%(diary-float t 4 2)>\n%%%%(progn (write-region \"x\" nil %S) t)"
-                             marker)))
+                     (format "at [2026-10-02 Fri 19:00]\n[%%%%(diary-float t 4 2)>\n%%%%(progn (write-region \"x\" nil %S) t)\n&%%%%(progn (write-region \"x\" nil %S) t)"
+                             marker marker)))
       ;; Nothing from the text shows up on the agenda, and the sexp never ran.
       (should (equal (organon-test-result "agenda.day" '((date . "2026-10-02"))) []))
       (should-not (file-exists-p marker)))))
