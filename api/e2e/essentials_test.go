@@ -2,7 +2,7 @@
 
 package e2e
 
-// Scenarios of openspec/changes/task-essentials against the real stack.
+// Scenarios of openspec/specs (task-lifecycle, task-listing, projects, cli) against the real stack.
 // go test runs files in name order, so these run after e2e_test.go.
 
 import (
