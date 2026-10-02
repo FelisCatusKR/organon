@@ -16,11 +16,11 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/netip"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FelisCatusKR/organon/api/internal/auth"
@@ -43,9 +43,18 @@ type Server struct {
 	ClientIPHeader string // e.g. "CF-Connecting-IP" behind cloudflared; empty: use the TCP peer
 	Version        string
 	Logger         *slog.Logger
+
+	// The last engine ping of /healthz, which needs no token: reusing it for a
+	// second keeps unauthenticated clients from queueing work on the engine.
+	healthMu  sync.Mutex
+	healthAt  time.Time
+	healthErr error
 }
 
 const maxBodyBytes = 1 << 20
+
+// healthCacheFor is how long /healthz reuses the last engine ping.
+var healthCacheFor = time.Second
 
 // Handler returns the HTTP handler for the whole API.
 func (s *Server) Handler() http.Handler {
@@ -64,7 +73,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusNotFound, model.ProblemCodeNotFound, "no such endpoint", nil)
 	})
-	return s.logRequests(mux)
+	return s.logRequests(noStore(mux))
+}
+
+// noStore marks every response as private and not to be cached or sniffed:
+// responses carry personal data and may pass through a CDN or tunnel.
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ---- middleware -------------------------------------------------------------
@@ -94,24 +113,47 @@ func (s *Server) authorize(scope string, h http.HandlerFunc) http.Handler {
 	})
 }
 
-// clientAddr is the address failed authentications are counted against. The
+// clientAddr is the key failed authentications are counted against. The
 // configured header is trusted as set by the proxy in front of the API: for a
-// list (X-Forwarded-For) the last entry is the one that proxy appended. A value
-// that is not an IP address is ignored.
+// list (X-Forwarded-For, possibly over several header lines) the last entry is
+// the one that proxy appended. A value that is not an address (with or without
+// a port) is ignored and the TCP peer is used.
 func (s *Server) clientAddr(r *http.Request) string {
 	if s.ClientIPHeader != "" {
-		if v := r.Header.Get(s.ClientIPHeader); v != "" {
-			last := v[strings.LastIndex(v, ",")+1:]
-			if addr, err := netip.ParseAddr(strings.TrimSpace(last)); err == nil {
-				return addr.Unmap().String()
+		if v := strings.Join(r.Header.Values(s.ClientIPHeader), ","); v != "" {
+			if addr, ok := parseAddr(v[strings.LastIndex(v, ",")+1:]); ok {
+				return limitKey(addr)
 			}
 		}
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+	if addr, ok := parseAddr(r.RemoteAddr); ok {
+		return limitKey(addr)
 	}
-	return host
+	return r.RemoteAddr
+}
+
+// parseAddr accepts "203.0.113.9", "203.0.113.9:443", "2001:db8::1" and
+// "[2001:db8::1]:443".
+func parseAddr(s string) (netip.Addr, bool) {
+	s = strings.TrimSpace(s)
+	if addr, err := netip.ParseAddr(s); err == nil {
+		return addr, true
+	}
+	if ap, err := netip.ParseAddrPort(s); err == nil {
+		return ap.Addr(), true
+	}
+	return netip.Addr{}, false
+}
+
+// limitKey is the address itself for IPv4 and the /64 network for IPv6: one
+// host usually owns a whole /64, so counting single IPv6 addresses would let
+// it try without limit.
+func limitKey(addr netip.Addr) string {
+	addr = addr.Unmap().WithZone("")
+	if addr.Is4() {
+		return addr.String()
+	}
+	return netip.PrefixFrom(addr, 64).Masked().String()
 }
 
 type statusRecorder struct {
@@ -260,9 +302,16 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) ([]byte, bool) {
 // ---- handlers --------------------------------------------------------------------
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
-	if err := s.Engine.Call(ctx, "ping", nil, nil); err != nil {
+	s.healthMu.Lock()
+	if time.Since(s.healthAt) >= healthCacheFor {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		s.healthErr = s.Engine.Call(ctx, "ping", nil, nil)
+		cancel()
+		s.healthAt = time.Now()
+	}
+	err := s.healthErr
+	s.healthMu.Unlock()
+	if err != nil {
 		s.writeEngineError(w, r, err)
 		return
 	}

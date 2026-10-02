@@ -56,7 +56,7 @@ Settings (environment variables or a `.env` file next to `compose.yaml`):
 | `ORGANON_TOKENS` | `./tokens` | Host file with token hashes |
 | `ORGANON_UID` / `ORGANON_GID` | `1000` | Owner of the data directory. Docker runs as root otherwise and your files would become root-owned |
 | `ORGANON_BIND` / `ORGANON_PORT` | `127.0.0.1` / `8080` | Where the API listens on the host |
-| `ORGANON_CLIENT_IP_HEADER` | – | Header with the real client address behind a proxy, e.g. `CF-Connecting-IP`. Set it only when every request reaches the API through that proxy: the header is trusted as given (for `X-Forwarded-For`, its last entry) |
+| `ORGANON_CLIENT_IP_HEADER` | – | Header with the real client address behind a proxy, e.g. `CF-Connecting-IP`. Set it only when every request reaches the API through that proxy: the header is trusted as given (for `X-Forwarded-For`, its last entry). A value that is not an address falls back to the proxy's own address, which all clients then share |
 | `ORGANON_IMAGE` | `ghcr.io/feliscatuskr/organon:main` | Image to run (see below) |
 
 **Images.** There are no releases yet. Every commit on `main` that passes CI is published for amd64 and arm64
@@ -72,7 +72,8 @@ path).
 
 **Exposing it.** The API binds to `127.0.0.1` by default. To reach it from elsewhere, put a TLS-terminating
 proxy or a tunnel in front (Caddy, Cloudflare Tunnel, Tailscale, WireGuard). Every endpoint except
-`/healthz` requires a token, and failed attempts are rate-limited per client address.
+`/healthz` requires a token, and failed attempts are rate-limited per client address (per /64 network for
+IPv6).
 
 ## Using the API
 
