@@ -106,6 +106,10 @@ curl -s "${auth[@]}" $API/tasks/completed  # completed today, repeating tasks in
 
 Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents with a stable `code`.
 
+**Retrying creates.** Send an `Idempotency-Key` with `POST /tasks` and `POST /projects`. With the key, a create
+that failed with `503` can safely be retried for 24 hours: the retry returns what the first request created,
+if it did, instead of creating it twice.
+
 ## Dates and time zones
 
 Org timestamps have no time zone: `<2026-10-25 Sun>` is a calendar date. Each instance declares the zone its

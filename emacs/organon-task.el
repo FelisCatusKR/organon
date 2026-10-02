@@ -262,7 +262,7 @@ not a task either: clients address tasks by ID only."
       (organon-signal "invalid" (format "project_id %s is not a project heading" id)))
     marker))
 
-(organon-defmethod "task.create" (params)
+(defun organon--task-create (params)
   "Create a task in the inbox, or as the last child of a project."
   (let* ((title (organon-clean-title (organon-param params 'title t)))
          (state (organon-param-enum params 'state '("TODO" "NEXT") "TODO"))
@@ -299,6 +299,12 @@ not a task either: clients address tasks by ID only."
           (insert (organon-escape-body body) "\n"))
         (goto-char heading)
         (organon-task-json)))))
+
+(organon-defmethod "task.create" (params)
+  "Create a task; a repeated idempotency key returns the task it created."
+  (organon-idempotent params
+                      (lambda () (organon--task-create params))
+                      (lambda (id) (organon--task-json-at (organon-find-id id)))))
 
 ;;;; task.update
 
@@ -719,7 +725,7 @@ Org would read `* TODO app' as a task, not as a project."
       (organon-signal "invalid" "a project title must not start with a task state such as TODO"))
     clean))
 
-(organon-defmethod "project.create" (params)
+(defun organon--project-create (params)
   "Create a project: a new file under projects/ with one level-1 heading."
   (let* ((title (organon--clean-project-title (organon-param params 'title t)))
          (body (organon--param-body params))
@@ -734,6 +740,19 @@ Org would read `* TODO app' as a task, not as a project."
         (when body (organon--replace-body body))
         (goto-char heading)
         (organon--project-at-point-json)))))
+
+(organon-defmethod "project.create" (params)
+  "Create a project; a repeated idempotency key returns the project it created."
+  (organon-idempotent params
+                      (lambda () (organon--project-create params))
+                      (lambda (id)
+                        (let ((marker (organon-find-id id)))
+                          (with-current-buffer (marker-buffer marker)
+                            (save-excursion
+                              (save-restriction
+                                (widen)
+                                (goto-char marker)
+                                (organon--project-at-point-json))))))))
 
 (organon-defmethod "projects.list" (_params)
   "Every project: a level-1 heading with an ID and no TODO keyword in projects/."

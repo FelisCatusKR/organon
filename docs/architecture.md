@@ -348,8 +348,10 @@ cache로 추가한다.
 ### 8.6 멱등성과 동시성
 
 - 상태 전이 요청은 `expected_state`가 다르면 `409`를 반환한다. 재시도해도 반복 task가 두 회차 밀리지 않는다.
-- `POST /tasks`와 `POST /projects`는 `Idempotency-Key`를 지원한다(API 메모리 LRU, 24시간, 토큰·endpoint별).
-  재시작하면 키가 사라진다. 엔진 timeout 뒤의 재시도는 중복 생성될 수 있다(이슈 #17).
+- `POST /tasks`와 `POST /projects`는 `Idempotency-Key`를 지원한다(토큰·endpoint별, 24시간). API는 응답을
+  메모리 LRU에 저장해 그대로 재전송한다. 엔진도 키의 hash와 만든 ID를 메모리에 기억한다. 그래서 API가 엔진을
+  기다리다 포기한(503) 요청을 엔진이 끝까지 처리했더라도, 같은 키로 재시도하면 새로 만들지 않고 그 결과를
+  돌려준다. 엔진이 재시작하면 엔진 쪽 키는 사라진다.
 - 쓰기는 Emacs 안에서 직렬화된다. RPC timeout(기본 10초)이 나면 `503`을 반환한다.
 
 | RPC error code | HTTP |
