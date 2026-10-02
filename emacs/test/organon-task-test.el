@@ -1,7 +1,7 @@
 ;;; organon-task-test.el --- Task create/get/transition and recurrence  -*- lexical-binding: t; -*-
 
 ;; Scenario names in docstrings refer to
-;; openspec/changes/mvp-a-tasks/specs/{task-lifecycle,task-recurrence,time-model}.
+;; openspec/specs/{task-lifecycle,task-recurrence,time-model}.
 ;; Clocks are UTC: "2026-10-02 05:29:00" is 14:29 in Asia/Seoul.
 
 ;;; Code:

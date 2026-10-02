@@ -1,6 +1,6 @@
 //go:build e2e
 
-// Package e2e runs the scenarios of openspec/changes/mvp-a-tasks against a
+// Package e2e runs the scenarios of openspec/specs against a
 // real stack started by scripts/e2e.sh. Every response is validated against
 // api/openapi.yaml.
 package e2e

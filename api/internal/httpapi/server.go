@@ -4,7 +4,7 @@
 // date arithmetic: everything about tasks is decided by the engine.
 //
 // The contract is api/openapi.yaml; behavior is specified in
-// openspec/changes/mvp-a-tasks/specs/.
+// openspec/specs/.
 package httpapi
 
 import (

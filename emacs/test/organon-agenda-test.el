@@ -1,6 +1,6 @@
 ;;; organon-agenda-test.el --- Agenda queries  -*- lexical-binding: t; -*-
 
-;; Scenarios: openspec/changes/mvp-a-tasks/specs/agenda-queries (and the
+;; Scenarios: openspec/specs/agenda-queries (and the
 ;; agenda parts of task-lifecycle / task-recurrence).
 
 ;;; Code:

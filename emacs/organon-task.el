@@ -8,7 +8,7 @@
 ;; RPC methods for tasks.  Every behavior that has a meaning in Org (state
 ;; changes, repeaters, warnings, agenda membership) is delegated to Org; this
 ;; file only validates input, positions new headings, and serializes what Org
-;; stored.  Specs: openspec/changes/mvp-a-tasks/specs/{task-lifecycle,
+;; stored.  Specs: openspec/specs/{task-lifecycle,
 ;; task-recurrence,agenda-queries}.
 
 ;;; Code:
