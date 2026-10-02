@@ -237,3 +237,38 @@
     (should-not (directory-files (organon-test-file "org/projects/") nil "comment"))))
 
 ;;; organon-essentials-test.el ends here
+
+;;;; 1.5 Headings without an ID; versions after the save
+
+(ert-deftest organon-essentials/hand-written-heading-is-not-a-task ()
+  "task-lifecycle: Hand-written heading."
+  (organon-test-with-essentials
+    (let ((file-precious-flag nil))
+      (with-temp-buffer
+        (insert "* WAITING Hand-written\nSCHEDULED: <2026-10-02 Fri>\n")
+        (append-to-file (point-min) (point-max) (organon-test-file "org/tasks/inbox.org"))))
+    (dolist (list (list (organon-test-result "tasks.list" `((states . ,(vconcat organon-task-states))))
+                        (organon-test-result "tasks.waiting")
+                        (organon-test-result "tasks.today" '((date . "2026-10-02")))))
+      (should-not (seq-find (lambda (task) (null (alist-get 'id task))) list))
+      (should-not (seq-find (lambda (task) (equal (alist-get 'title task) "Hand-written")) list)))
+    (let ((entry (seq-find (lambda (e) (equal (alist-get 'title e) "Hand-written"))
+                           (organon-test-result "agenda.day" '((date . "2026-10-02"))))))
+      (should entry)
+      (should (null (alist-get 'task entry))))))
+
+(ert-deftest organon-essentials/responses-carry-the-saved-version ()
+  "task-lifecycle: Reopen with the version from the completion."
+  (organon-test-with-essentials
+    (let* ((id (organon-test-eid 2))
+           (done (alist-get 'task (organon-test-result
+                                   "task.transition" `((id . ,id) (action . "complete") (expected_state . "NEXT")
+                                                       (expected_version . ,(organon-test-version 2)))))))
+      (should (equal (alist-get 'version done) (organon-test-version 2)))
+      (should (equal (alist-get 'state (alist-get 'task (organon-test-result
+                                                         "task.transition"
+                                                         `((id . ,id) (action . "todo") (expected_state . "DONE")
+                                                           (expected_version . ,(alist-get 'version done))))))
+                     "TODO"))
+      (let ((edited (organon-test-update-result 2 '((title . "Renamed")))))
+        (should (equal (alist-get 'version edited) (organon-test-version 2)))))))

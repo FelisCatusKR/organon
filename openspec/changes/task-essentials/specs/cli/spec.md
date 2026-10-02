@@ -37,6 +37,10 @@ Date options SHALL be passed to the API unchanged; the client SHALL NOT compute 
 - **WHEN** a user runs `organon task done <id>` on a repeating task
 - **THEN** the client reads the task, sends `complete` with its current state and version, and prints the next due date returned by the API
 
+#### Scenario: Postponing keeps the repeater
+- **WHEN** a user runs `organon task edit <id> --deadline 2026-10-30` on a task due `<2026-10-25 +1m -3d>`
+- **THEN** the client sends the deadline `{"date": "2026-10-30", "repeat": "+1m", "warning_days": 3}` copied from the task it just read, and `--repeat none` would drop the repeater
+
 #### Scenario: API error
 - **WHEN** the API returns a problem document
 - **THEN** the client prints its `detail`, exits non-zero, and with `--json` prints the problem document itself

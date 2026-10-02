@@ -196,9 +196,12 @@ drawers and body, not children).  Any change to the entry changes it."
 
 (defun organon-task-state ()
   "State of the heading at point if it is a task, else nil.
-A file may declare its own keywords with #+TODO:; headings using them are not
-tasks, because their state is outside the contract."
-  (car (member (org-get-todo-state) organon-task-states)))
+A task has one of the six workflow states and an ID.  A file may declare its
+own keywords with #+TODO:; headings using them are not tasks, because their
+state is outside the contract.  A heading without an ID (written by hand) is
+not a task either: clients address tasks by ID only."
+  (and (org-entry-get nil "ID")
+       (car (member (org-get-todo-state) organon-task-states))))
 
 (defun organon-task-json ()
   "The task heading at point as a JSON-ready alist."
@@ -390,8 +393,8 @@ that owns it."
             (when (assq 'body set)
               (goto-char heading)
               (organon--replace-body body))
-            (goto-char heading)
-            (organon-task-json)))))))
+            (goto-char heading)))))
+    (organon--task-json-at (organon-find-id id))))
 
 ;;;; Transitions
 
@@ -431,7 +434,7 @@ retried request would otherwise move their dates twice)."
          (action (organon-param-enum params 'action '("start" "wait" "complete" "skip" "cancel" "todo" "next")))
          (expected (organon-param-string params 'expected_state t))
          (expected-version (organon-param-string params 'expected_version))
-         (task
+         (_
           (organon-with-entry id
             (let ((current (organon-task-state))
                   (version (organon--entry-version)))
@@ -456,8 +459,10 @@ retried request would otherwise move their dates twice)."
                 ("cancel" (organon--strip-repeaters) (org-todo "CANCELLED"))
                 ;; Not logged: TODO and NEXT carry no "!" in `org-todo-keywords'.
                 ("todo" (org-todo "TODO"))
-                ("next" (org-todo "NEXT")))
-              (organon-task-json))))
+                ("next" (org-todo "NEXT"))))))
+         ;; Serialize after the wrapper has written the LOGBOOK and saved, so
+         ;; that `version' is the version clients will see next.
+         (task (organon--task-json-at (organon-find-id id)))
          (warnings (when (and (equal action "start")
                               (> (organon--count-state "DOING") organon-doing-limit))
                      '("doing_limit_exceeded"))))
@@ -579,7 +584,9 @@ copy any marker it keeps."
   (let ((files (organon-agenda-files)))
     (mapc #'organon-fresh-buffer files)
     (let ((org-agenda-files files))
-      (vconcat (and files (org-map-entries #'organon-task-json "TODO=\"WAITING\"" 'agenda))))))
+      (vconcat (and files (delq nil (org-map-entries
+                                     (lambda () (and (organon-task-state) (organon-task-json)))
+                                     "TODO=\"WAITING\"" 'agenda)))))))
 
 (defun organon--log-line-done-p (marker)
   "Non-nil if MARKER is on a state change into DONE inside a LOGBOOK drawer.
@@ -622,8 +629,10 @@ Uses the agenda's log mode, i.e. the CLOSED stamps and LOGBOOK lines Org wrote."
            (push (copy-marker heading) markers)))))
     (let (seen result)
       (dolist (marker (nreverse markers))
-        (let ((task (organon--task-json-at marker)))
-          (unless (member (alist-get 'id task) seen)
+        (let ((task (and (with-current-buffer (marker-buffer marker)
+                           (save-excursion (goto-char marker) (organon-task-state)))
+                         (organon--task-json-at marker))))
+          (unless (or (null task) (member (alist-get 'id task) seen))
             (push (alist-get 'id task) seen)
             (push task result))))
       (vconcat (nreverse result)))))

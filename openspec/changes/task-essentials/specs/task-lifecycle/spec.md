@@ -32,6 +32,23 @@ SHALL apply.
 - **WHEN** a client sends a title that Org would parse as structure, an unknown field, or no `expected_version`
 - **THEN** the response is `422` and the file is unchanged
 
+### Requirement: Headings without an ID are not tasks
+A heading SHALL be treated as a task only if it also has an `ID` property, since clients address tasks by ID.
+Task lists and views SHALL leave out headings without an ID, and the agenda SHALL list their dated entries
+with `task` set to `null`.
+
+#### Scenario: Hand-written heading
+- **WHEN** a heading `* WAITING Hand-written` without an `ID` is added to `org/tasks/inbox.org` outside the API
+- **THEN** it is not returned by `GET /api/v1/tasks` or `GET /api/v1/tasks/waiting`, and no list returns a task whose `id` is `null`
+
+### Requirement: Responses carry the saved version
+The task in a successful edit or transition response SHALL carry the `version` of the entry as saved, including
+LOGBOOK lines written by the change, so that it can be used as the next `expected_version`.
+
+#### Scenario: Reopen with the version from the completion
+- **WHEN** a client completes a task and then sends `todo` with the `version` returned by the completion
+- **THEN** the task is reopened
+
 ## MODIFIED Requirements
 
 ### Requirement: State transitions

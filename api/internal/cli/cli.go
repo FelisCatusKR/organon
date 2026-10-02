@@ -29,7 +29,8 @@ const Usage = `client commands (configure with ORGANON_URL / ORGANON_TOKEN or ~/
   task list [--state S[,S...]] [--project ID] [--tag T]
   task show ID
   task edit ID [--title T] [--body B] [--priority X|none] [--tags a,b|none]
-               [--scheduled D|none] [--deadline D|none] [--repeat R] [--warn N]
+               [--scheduled D|none] [--deadline D|none] [--repeat R|none] [--warn N]
+               (a moved date keeps its repeater and warning unless given)
                [--repeat-to TODO|NEXT|none]
   task start|wait|done|skip|cancel|todo|next ID
   project add TITLE [--body TEXT]
@@ -420,33 +421,15 @@ func (r *runner) taskEdit(ctx context.Context, args []string) error {
 	}
 	warn := 0
 	if set["warn"] {
-		if warn, err = strconv.Atoi(*values["warn"]); err != nil || warn <= 0 {
+		if warn, err = strconv.Atoi(*values["warn"]); err != nil || warn < 0 {
 			return errors.New("--warn must be a positive number of days")
 		}
 	}
 	repeat := *values["repeat"]
 	if (set["repeat"] || set["warn"]) && !set["deadline"] && !set["scheduled"] {
-		return errors.New("--repeat and --warn replace a whole date: give --deadline or --scheduled too")
+		return errors.New("--repeat and --warn go with --deadline or --scheduled")
 	}
-	for _, kind := range []string{"deadline", "scheduled"} {
-		if !set[kind] {
-			continue
-		}
-		v := *values[kind]
-		if v == "none" {
-			fields[kind] = nil
-			continue
-		}
-		rep, w := "", 0
-		if kind == "deadline" || !set["deadline"] {
-			rep = repeat
-		}
-		if kind == "deadline" {
-			w = warn
-		}
-		fields[kind] = planning(v, rep, w)
-	}
-	if len(fields) == 0 {
+	if len(fields) == 0 && !set["deadline"] && !set["scheduled"] {
 		return errors.New("nothing to change")
 	}
 	if err := r.connect(); err != nil {
@@ -459,6 +442,42 @@ func (r *runner) taskEdit(ctx context.Context, args []string) error {
 	current, _, err := r.c.GetTask(ctx, id)
 	if err != nil {
 		return err
+	}
+	// The API replaces a whole date. Moving a date should not silently end a
+	// series, so a repeater or warning that is not mentioned is carried over
+	// from the task as just read (not computed); "--repeat none" drops it.
+	for _, kind := range []string{"deadline", "scheduled"} {
+		if !set[kind] {
+			continue
+		}
+		v := *values[kind]
+		if v == "none" {
+			fields[kind] = nil
+			continue
+		}
+		old := current.Scheduled
+		if kind == "deadline" {
+			old = current.Deadline
+		}
+		rep := ""
+		switch {
+		case set["repeat"] && (kind == "deadline" || !set["deadline"]):
+			if repeat != "none" {
+				rep = repeat
+			}
+		case old != nil && old.Repeat != nil:
+			rep = *old.Repeat
+		}
+		w := 0
+		if kind == "deadline" {
+			switch {
+			case set["warn"]:
+				w = warn
+			case old != nil && old.WarningDays != nil:
+				w = *old.WarningDays
+			}
+		}
+		fields[kind] = planning(v, rep, w)
 	}
 	task, raw, err := r.c.UpdateTask(ctx, id, current.Version, fields)
 	if err != nil {

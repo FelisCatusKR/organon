@@ -285,6 +285,26 @@ func TestEditBuildsPatch(t *testing.T) {
 	}
 }
 
+// cli: Postponing keeps the repeater
+func TestPostponeKeepsRepeater(t *testing.T) {
+	f := newFakeAPI(t)
+	f.repeat = true
+	if code, _, errs := run(t, f, "task", "edit", idA, "--deadline", "2026-10-30"); code != 0 {
+		t.Fatal(errs)
+	}
+	got, _ := json.Marshal(f.writes()[0].Body["deadline"])
+	if string(got) != `{"date":"2026-10-30","repeat":"+1m"}` {
+		t.Fatalf("deadline %s", got)
+	}
+	if code, _, errs := run(t, f, "task", "edit", idA, "--deadline", "2026-10-30", "--repeat", "none"); code != 0 {
+		t.Fatal(errs)
+	}
+	got, _ = json.Marshal(f.writes()[1].Body["deadline"])
+	if string(got) != `{"date":"2026-10-30"}` {
+		t.Fatalf("deadline with --repeat none %s", got)
+	}
+}
+
 func TestUnknownOutcomeIsExplained(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
