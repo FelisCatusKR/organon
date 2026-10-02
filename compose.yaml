@@ -6,7 +6,7 @@
 #   api     the HTTP API; reaches the engine only through a Unix socket in the
 #           "run" volume and never mounts your data.
 #
-# Quick start (see README.md for details):
+# Quick start (see docs/deployment.md for details):
 #   mkdir -p data && docker compose run --rm engine organon init --calendar-tz Asia/Seoul
 #   docker compose run --rm --no-deps engine organon token new --name me --scopes read,tasks:write
 #   # put the printed "tokens file line" into ./tokens (create the file before `up`)
