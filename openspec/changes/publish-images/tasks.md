@@ -2,13 +2,13 @@
 
 ## 1. Publish workflow
 
-- [ ] 1.1 Add the `publish` matrix job (D1, D2: native amd64/arm64, push by digest, digest artifact, `packages: write` only there, gated on push to main and successful unit/e2e) and verify with `actionlint` (or a YAML parse) that the workflow is valid and that the job's `if:` excludes pull requests
-- [ ] 1.2 Add the `publish-manifest` job (D2, D3: metadata-action tags `main` and `sha-<7>`, labels, `VERSION=main-<7>` build argument) and verify the same way
+- [x] 1.1 Add the `publish` matrix job (D1, D2: native amd64/arm64, push by digest, digest artifact, `packages: write` only there, gated on push to main and successful unit/e2e) and verify with `actionlint` (or a YAML parse) that the workflow is valid and that the job's `if:` excludes pull requests
+- [x] 1.2 Add the `publish-manifest` job (D2, D3: metadata-action tags `main` and `sha-<7>`, labels, `VERSION=main-<7>` build argument) and verify the same way
 
 ## 2. Documentation
 
-- [ ] 2.1 Switch `compose.yaml`, `contrib/quadlet/*` and `README.md` to `:main` with the development-build note and the `sha-` pinning advice, and verify `docker compose config` and the Quadlet dry run still pass
-- [ ] 2.2 Document the one-time "make the GHCR package public" step in CONTRIBUTING and verify the text matches the GitHub UI
+- [x] 2.1 Switch `compose.yaml`, `contrib/quadlet/*` and `README.md` to `:main` with the development-build note and the `sha-` pinning advice, and verify `docker compose config` and the Quadlet dry run still pass
+- [x] 2.2 Document the one-time "make the GHCR package public" step in CONTRIBUTING and verify the text matches the GitHub UI
 
 ## 3. Integration
 
