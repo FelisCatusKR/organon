@@ -176,6 +176,23 @@
     ;; The project heading has an ID but is not a task.
     (should (equal (organon-test-error-code "task.get" `((id . ,organon-test-project-id))) "not_found"))))
 
+(ert-deftest organon-task/unknown-ids-rescan-only-after-changes ()
+  "Repeated lookups of unknown IDs do not re-read the org directory each time."
+  (organon-test-with-instance "tasks" organon-test-clock
+    (let ((scans 0)
+          (unknown '((id . "99999999-9999-4999-8999-999999999999"))))
+      (cl-letf* ((update (symbol-function 'org-id-update-id-locations))
+                 ((symbol-function 'org-id-update-id-locations)
+                  (lambda (&rest args) (cl-incf scans) (apply update args))))
+        (dotimes (_ 3)
+          (should (equal (organon-test-error-code "task.get" unknown) "not_found")))
+        (should (= scans 1))
+        ;; A change on disk allows one more scan.
+        (organon-test-result "task.create" '((title . "New")))
+        (dotimes (_ 2)
+          (should (equal (organon-test-error-code "task.get" unknown) "not_found")))
+        (should (= scans 2))))))
+
 (ert-deftest organon-task/closed-at-is-utc ()
   "time-model: closed_at in UTC (08:30 KST on 2026-10-03 = 23:30Z on 2026-10-02)."
   (organon-test-with-instance "tasks" "2026-10-02 23:30:00"
