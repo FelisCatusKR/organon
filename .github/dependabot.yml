@@ -1,0 +1,26 @@
+# Weekly update PRs, one per ecosystem. The Emacs/Org versions come from the
+# Debian base image; the Go, Node and npm tool versions in mise.toml are
+# updated by hand (Dependabot does not read mise.toml).
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /api
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /container
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        patterns: ["*"]
