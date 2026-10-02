@@ -28,7 +28,7 @@ jobs:
     outputs:
       code: ${{ steps.diff.outputs.code }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - id: diff
@@ -50,8 +50,8 @@ jobs:
     name: specs, OpenAPI, Quadlet
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
       - run: mise run spec:validate
       - name: Finished OpenSpec changes are archived
         run: mise run spec:check-archived
@@ -75,14 +75,17 @@ jobs:
           - { arch: arm64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
       - name: gofmt
         working-directory: api
         run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w on the files above" >&2; exit 1; }
       - name: go vet
         working-directory: api
         run: go vet ./... && go vet -tags e2e ./e2e/
+      - name: go.mod and go.sum are tidy
+        working-directory: api
+        run: go mod tidy -diff || { echo "run go mod tidy in api/ and commit" >&2; exit 1; }
       - name: go test -race
         working-directory: api
         run: go test -race ./...
@@ -105,8 +108,8 @@ jobs:
           - { arch: arm64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
       - name: Build image (Docker)
         if: matrix.runtime == 'compose'
         run: docker build -f container/Containerfile -t organon:dev .
@@ -145,21 +148,21 @@ jobs:
     env:
       IMAGE: ghcr.io/feliscatuskr/organon
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: version
         run: echo "value=main-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
       - id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE }}
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: container/Containerfile
@@ -172,7 +175,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/digests"
           digest="${{ steps.build.outputs.digest }}"
           touch "$RUNNER_TEMP/digests/${digest#sha256:}"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: digest-${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
@@ -189,20 +192,20 @@ jobs:
     env:
       IMAGE: ghcr.io/feliscatuskr/organon
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: ${{ runner.temp }}/digests
           pattern: digest-*
           merge-multiple: true
       - id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE }}
           tags: |
             type=sha,prefix=sha-,format=short
             type=raw,value=main
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -210,9 +213,10 @@ jobs:
       - name: Create the multi-arch manifest
         working-directory: ${{ runner.temp }}/digests
         run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf "$IMAGE@sha256:%s " *)
+          mapfile -t tags < <(jq -r '.tags[] | "-t", .' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          sources=()
+          for digest in *; do sources+=("$IMAGE@sha256:$digest"); done
+          docker buildx imagetools create "${tags[@]}" "${sources[@]}"
       - name: Verify the published image
         run: |
           ref="$IMAGE:sha-${GITHUB_SHA::7}"
