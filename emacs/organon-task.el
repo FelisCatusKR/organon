@@ -196,9 +196,12 @@ drawers and body, not children).  Any change to the entry changes it."
 
 (defun organon-task-state ()
   "State of the heading at point if it is a task, else nil.
-A file may declare its own keywords with #+TODO:; headings using them are not
-tasks, because their state is outside the contract."
-  (car (member (org-get-todo-state) organon-task-states)))
+A task has one of the six workflow states and an ID.  A file may declare its
+own keywords with #+TODO:; headings using them are not tasks, because their
+state is outside the contract.  A heading without an ID (written by hand) is
+not a task either: clients address tasks by ID only."
+  (and (org-entry-get nil "ID")
+       (car (member (org-get-todo-state) organon-task-states))))
 
 (defun organon-task-json ()
   "The task heading at point as a JSON-ready alist."
@@ -253,7 +256,9 @@ tasks, because their state is outside the contract."
                    (save-excursion
                      (goto-char marker)
                      (and (organon--in-org-subdir-p "projects")
-                          (= (org-current-level) 1)))))
+                          (= (org-current-level) 1)
+                          ;; Same definition as projects.list.
+                          (not (org-get-todo-state))))))
       (organon-signal "invalid" (format "project_id %s is not a project heading" id)))
     marker))
 
@@ -295,6 +300,104 @@ tasks, because their state is outside the contract."
         (goto-char heading)
         (organon-task-json)))))
 
+;;;; task.update
+
+(defconst organon--update-fields
+  '(title body priority tags scheduled deadline repeat_to_state)
+  "Fields a client may set in task.update.")
+
+(defconst organon--clearable-fields '(priority scheduled deadline repeat_to_state)
+  "Fields a client may clear (JSON null in the HTTP PATCH).")
+
+(defun organon--replace-body (body)
+  "Replace the body of the entry at point with BODY (nil or \"\" removes it)."
+  (save-excursion
+    (org-back-to-heading t)
+    (let ((end (save-excursion (outline-next-heading) (point))))
+      (org-end-of-meta-data t)
+      (when (< (point) end)
+        (delete-region (point) end))
+      (when (and body (not (string-empty-p body)))
+        (unless (bolp) (insert "\n"))
+        (insert (organon-escape-body body) "\n")))))
+
+(defun organon--replace-planning (kind value)
+  "Remove the KIND (scheduled or deadline) stamp, then set it to VALUE if non-nil.
+Removing first matters: `org-deadline' keeps an old repeater when the new stamp
+has none."
+  (let* ((key (if (eq kind 'deadline) :deadline :scheduled))
+         (current (org-element-property key (save-excursion (org-back-to-heading t)
+                                                            (org-element-at-point))))
+         (command (if (eq kind 'deadline) #'org-deadline #'org-schedule)))
+    (when current (funcall command '(4)))
+    (when value (funcall command nil value))))
+
+(organon-defmethod "task.update" (params)
+  "Change some fields of a task.
+PARAMS: id, expected_version (required), set (object of new values) and clear
+(array of field names to remove).  Each field is applied with the Org command
+that owns it."
+  (let* ((id (organon-param-uuid params 'id))
+         (expected-version (organon-param-string params 'expected_version t))
+         (set (let ((v (organon-param params 'set)))
+                (unless (listp v) (organon-signal "invalid" "set must be an object"))
+                v))
+         (clear (let ((v (organon-param params 'clear)))
+                  (cond ((null v) nil)
+                        ((vectorp v) (mapcar (lambda (name)
+                                               (let ((sym (and (stringp name) (intern-soft name))))
+                                                 (unless (memq sym organon--clearable-fields)
+                                                   (organon-signal "invalid" (format "cannot clear %S" name)))
+                                                 sym))
+                                             v))
+                        (t (organon-signal "invalid" "clear must be an array")))))
+         (fields (mapcar #'car set)))
+    (dolist (field fields)
+      (unless (memq field organon--update-fields)
+        (organon-signal "invalid" (format "unknown field %s" field)))
+      (when (memq field clear)
+        (organon-signal "invalid" (format "%s cannot be both set and cleared" field))))
+    (unless (or fields clear)
+      (organon-signal "invalid" "nothing to change"))
+    ;; Validate every value before touching the file.
+    (let ((title (and (assq 'title set) (organon-clean-title (alist-get 'title set))))
+          (body (and (assq 'body set) (or (organon--param-body set) "")))
+          (priority (and (assq 'priority set) (organon-param-enum set 'priority '("A" "B" "C"))))
+          (tags (organon--param-tags set))
+          (scheduled (organon--param-timestamp set 'scheduled))
+          (deadline (organon--param-timestamp set 'deadline t))
+          (repeat-to (and (assq 'repeat_to_state set)
+                          (organon-param-enum set 'repeat_to_state '("TODO" "NEXT")))))
+      (organon-with-entry id
+        (let ((state (organon-task-state))
+              (version (organon--entry-version)))
+          (unless state
+            (organon-signal "not_found" "entry is not a task"))
+          (unless (equal version expected-version)
+            (organon-signal "conflict" "the task changed since expected_version was read"
+                            `((actual_state . ,state) (actual_version . ,version))))
+          (let ((heading (point-marker)))
+            (when title (org-edit-headline title))
+            (cond (priority (org-priority (string-to-char priority)))
+                  ((and (memq 'priority clear)
+                        (org-element-property :priority (org-element-at-point)))
+                   (org-priority 'remove)))
+            (when (assq 'tags set) (org-set-tags tags))
+            (when (or scheduled (memq 'scheduled clear))
+              (goto-char heading)
+              (organon--replace-planning 'scheduled scheduled))
+            (when (or deadline (memq 'deadline clear))
+              (goto-char heading)
+              (organon--replace-planning 'deadline deadline))
+            (goto-char heading)
+            (cond (repeat-to (org-entry-put nil "REPEAT_TO_STATE" repeat-to))
+                  ((memq 'repeat_to_state clear) (org-entry-delete nil "REPEAT_TO_STATE")))
+            (when (assq 'body set)
+              (goto-char heading)
+              (organon--replace-body body))
+            (goto-char heading)))))
+    (organon--task-json-at (organon-find-id id))))
+
 ;;;; Transitions
 
 (defun organon--strip-repeaters ()
@@ -319,19 +422,23 @@ Rewrites each stamp from Org's own parse with the repeater unset."
             (insert (org-element-interpret-data new))))))))
 
 (defun organon--count-state (state)
+  "Number of tasks (see `organon-task-state') in STATE in the agenda sources."
   (let ((org-agenda-files (organon-agenda-files)))
-    (length (org-map-entries #'ignore (format "TODO=%S" state) 'agenda))))
+    (length (delq nil (org-map-entries (lambda () (equal (organon-task-state) state))
+                                       (format "TODO=%S" state) 'agenda)))))
 
 (organon-defmethod "task.transition" (params)
-  "Move a task to another state.  ACTION is start, wait, complete, skip or cancel.
+  "Move a task to another state.
+ACTION is start, wait, complete, skip, cancel, todo or next; todo and next also
+reopen a closed task (Org removes its CLOSED stamp).
 expected_state must match the stored state, and expected_version the stored
 version (required for repeating tasks, which return to an open state, so a
 retried request would otherwise move their dates twice)."
   (let* ((id (organon-param-uuid params 'id))
-         (action (organon-param-enum params 'action '("start" "wait" "complete" "skip" "cancel")))
+         (action (organon-param-enum params 'action '("start" "wait" "complete" "skip" "cancel" "todo" "next")))
          (expected (organon-param-string params 'expected_state t))
          (expected-version (organon-param-string params 'expected_version))
-         (task
+         (_
           (organon-with-entry id
             (let ((current (organon-task-state))
                   (version (organon--entry-version)))
@@ -353,8 +460,13 @@ retried request would otherwise move their dates twice)."
                 ;; On a repeating task Org treats CANCELLED like DONE: the
                 ;; occurrence is logged and the dates move on.
                 ("skip" (org-todo "CANCELLED"))
-                ("cancel" (organon--strip-repeaters) (org-todo "CANCELLED")))
-              (organon-task-json))))
+                ("cancel" (organon--strip-repeaters) (org-todo "CANCELLED"))
+                ;; Not logged: TODO and NEXT carry no "!" in `org-todo-keywords'.
+                ("todo" (org-todo "TODO"))
+                ("next" (org-todo "NEXT"))))))
+         ;; Serialize after the wrapper has written the LOGBOOK and saved, so
+         ;; that `version' is the version clients will see next.
+         (task (organon--task-json-at (organon-find-id id)))
          (warnings (when (and (equal action "start")
                               (> (organon--count-state "DOING") organon-doing-limit))
                      '("doing_limit_exceeded"))))
@@ -476,7 +588,9 @@ copy any marker it keeps."
   (let ((files (organon-agenda-files)))
     (mapc #'organon-fresh-buffer files)
     (let ((org-agenda-files files))
-      (vconcat (and files (org-map-entries #'organon-task-json "TODO=\"WAITING\"" 'agenda))))))
+      (vconcat (and files (delq nil (org-map-entries
+                                     (lambda () (and (organon-task-state) (organon-task-json)))
+                                     "TODO=\"WAITING\"" 'agenda)))))))
 
 (defun organon--log-line-done-p (marker)
   "Non-nil if MARKER is on a state change into DONE inside a LOGBOOK drawer.
@@ -519,11 +633,122 @@ Uses the agenda's log mode, i.e. the CLOSED stamps and LOGBOOK lines Org wrote."
            (push (copy-marker heading) markers)))))
     (let (seen result)
       (dolist (marker (nreverse markers))
-        (let ((task (organon--task-json-at marker)))
-          (unless (member (alist-get 'id task) seen)
+        (let ((task (and (with-current-buffer (marker-buffer marker)
+                           (save-excursion (goto-char marker) (organon-task-state)))
+                         (organon--task-json-at marker))))
+          (unless (or (null task) (member (alist-get 'id task) seen))
             (push (alist-get 'id task) seen)
             (push task result))))
       (vconcat (nreverse result)))))
+
+;;;; Listing
+
+(defconst organon-open-states '("TODO" "NEXT" "DOING" "WAITING"))
+
+(defun organon--project-id-at-point ()
+  (let ((project (organon--project-json)))
+    (and (consp project) (alist-get 'id project))))
+
+(organon-defmethod "tasks.list" (params)
+  "Tasks in the agenda sources, in file order, filtered by states (default: the
+open ones), project and tag.  Filtering happens here, in Lisp, so request
+values never become Org match syntax."
+  (let* ((states (let ((v (organon-param params 'states)))
+                   (cond ((null v) organon-open-states)
+                         ((and (vectorp v) (> (length v) 0))
+                          (mapcar (lambda (s)
+                                    (unless (member s organon-task-states)
+                                      (organon-signal "invalid" (format "unknown state %S" s)))
+                                    s)
+                                  v))
+                         (t (organon-signal "invalid" "states must be a non-empty array")))))
+         (project (and (organon-param params 'project) (organon-param-uuid params 'project)))
+         (tag (let ((v (organon-param-string params 'tag)))
+                (when (and v (not (string-match-p "\\`[[:alnum:]_@#%]+\\'" v)))
+                  (organon-signal "invalid" "tag must be letters, digits or _@#%"))
+                v))
+         (files (organon-agenda-files)))
+    (mapc #'organon-fresh-buffer files)
+    (vconcat
+     (and files
+          (delq nil
+                (let ((org-agenda-files files))
+                  (org-map-entries
+                   (lambda ()
+                     (let ((state (organon-task-state)))
+                       (and state (member state states)
+                            (or (null tag) (member tag (org-get-tags nil t)))
+                            (or (null project) (equal project (organon--project-id-at-point)))
+                            (organon-task-json))))
+                   nil 'agenda)))))))
+
+;;;; Projects
+
+(defun organon--project-file-name (title)
+  "A new file name under projects/ derived from TITLE; never an existing one."
+  (let* ((slug (replace-regexp-in-string "[^[:alnum:]]+" "-" (downcase title)))
+         (slug (string-trim slug "-+" "-+"))
+         (slug (string-trim-right (truncate-string-to-width slug 50) "-+"))
+         (slug (if (string-empty-p slug) "project" slug))
+         (dir (expand-file-name "projects/" organon-org-dir))
+         (candidate (expand-file-name (concat slug ".org") dir))
+         (n 1))
+    (while (file-exists-p candidate)
+      (setq n (1+ n)
+            candidate (expand-file-name (format "%s-%d.org" slug n) dir)))
+    candidate))
+
+(defun organon--project-at-point-json ()
+  "The project heading at point (level 1 in projects/) as a JSON-ready alist."
+  (let ((open 0))
+    (org-map-entries (lambda ()
+                       (when (member (organon-task-state) organon-open-states)
+                         (setq open (1+ open))))
+                     nil 'tree)
+    `((id . ,(org-entry-get nil "ID"))
+      (title . ,(org-get-heading t t t t))
+      (open_tasks . ,open)
+      (location_hint . ,(organon-relative-path buffer-file-name)))))
+
+(defun organon--clean-project-title (title)
+  "Like `organon-clean-title', and TITLE must not start with a workflow state:
+Org would read `* TODO app' as a task, not as a project."
+  (let ((clean (organon-clean-title title))
+        (case-fold-search nil))
+    (when (string-match-p (concat "\\`" (regexp-opt organon-task-states) "\\_>") clean)
+      (organon-signal "invalid" "a project title must not start with a task state such as TODO"))
+    clean))
+
+(organon-defmethod "project.create" (params)
+  "Create a project: a new file under projects/ with one level-1 heading."
+  (let* ((title (organon--clean-project-title (organon-param params 'title t)))
+         (body (organon--param-body params))
+         (file (organon--project-file-name title)))
+    (make-directory (file-name-directory file) t)
+    (organon-with-file file
+      (erase-buffer)
+      (insert "#+title: " title "\n\n* " title "\n")
+      (forward-line -1)
+      (let ((heading (point-marker)))
+        (org-id-get-create)
+        (when body (organon--replace-body body))
+        (goto-char heading)
+        (organon--project-at-point-json)))))
+
+(organon-defmethod "projects.list" (_params)
+  "Every project: a level-1 heading with an ID and no TODO keyword in projects/."
+  (let ((files (organon-org-files "projects")))
+    (mapc #'organon-fresh-buffer files)
+    (vconcat
+     (and files
+          (delq nil
+                (org-map-entries
+                 (lambda ()
+                   (and (= (org-current-level) 1)
+                        (not (org-get-todo-state))
+                        (org-entry-get nil "ID")
+                        (organon--project-at-point-json)))
+                 nil files))))))
 
 (provide 'organon-task)
 

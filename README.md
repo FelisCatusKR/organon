@@ -75,6 +75,49 @@ proxy or a tunnel in front (Caddy, Cloudflare Tunnel, Tailscale, WireGuard). Eve
 `/healthz` requires a token, and failed attempts are rate-limited per client address (per /64 network for
 IPv6).
 
+## Using the CLI
+
+The `organon` binary is also a client for the API. It talks only to the HTTP API, so it works the same against
+a local or a remote instance. Point it at your instance once:
+
+```sh
+mkdir -p ~/.config/organon
+cat > ~/.config/organon/client.json <<'JSON'
+{"url": "http://127.0.0.1:8080", "token": "org_..."}
+JSON
+chmod 600 ~/.config/organon/client.json   # the CLI refuses a file others can read
+```
+
+`ORGANON_URL` and `ORGANON_TOKEN` override the file. Without Go installed, run the CLI from the image:
+`docker run --rm -e ORGANON_URL -e ORGANON_TOKEN --network host ghcr.io/feliscatuskr/organon:main organon today`.
+
+```sh
+organon today                     # what matters today (overdue, due soon, scheduled)
+organon overdue
+organon waiting
+organon completed --date 2026-10-02
+
+organon task add "Spotify 가족 요금제 납부" --next --deadline 2026-10-25 --repeat +1m --warn 3 --tag bills
+organon task add "Call the plumber" --scheduled "2026-10-05 15:00" --priority A
+organon task list                       # open tasks, with or without dates
+organon task list --state NEXT --tag bills
+
+organon task done 3f2a                  # IDs can be shortened to a unique prefix (4+ characters)
+organon task start 9c00
+organon task next 9c00                  # back to NEXT; `todo` / `next` also reopen closed tasks
+organon task edit 3f2a --deadline 2026-10-30   # keeps its repeater; add --repeat none to end the series
+organon task edit 3f2a --priority none --scheduled none
+
+organon project add "Home renovation"
+organon task add "Order tiles" --project 7777
+organon project list
+```
+
+Dates are passed to the API as you type them; Org computes everything else. Every command takes `--json` to
+print the API's response unchanged. If a change fails because the server did not answer, the CLI does not
+retry: check with `organon task show ID` first. Re-running a completion that already went through would move
+a repeating task twice.
+
 ## Using the API
 
 ```sh
@@ -109,7 +152,10 @@ curl -s "${auth[@]}" $API/tasks/completed  # completed today, repeating tasks in
 ```
 
 Other transitions: `start` (→ DOING), `wait` (→ WAITING), `skip` (cancel this occurrence; a repeating task
-moves to the next one), `cancel` (→ CANCELLED; ends a repeating series). Errors are
+moves to the next one), `cancel` (→ CANCELLED; ends a repeating series), `todo` / `next` (also reopen a
+closed task). Edit a task with `PATCH /api/v1/tasks/{id}` (`expected_version` plus the fields to change; `null`
+clears a date or the priority), list tasks with `GET /api/v1/tasks?state=NEXT&project=…&tag=…`, and manage
+projects with `GET` / `POST /api/v1/projects`. Errors are
 [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents with a stable `code`.
 
 ### Dates and time zones

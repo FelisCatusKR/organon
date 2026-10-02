@@ -161,10 +161,9 @@ func (e State) Valid() bool {
 
 // Defines values for TaskPriority.
 const (
-	TaskPriorityA           TaskPriority = "A"
-	TaskPriorityB           TaskPriority = "B"
-	TaskPriorityC           TaskPriority = "C"
-	TaskPriorityLessThanNil TaskPriority = "<nil>"
+	TaskPriorityA TaskPriority = "A"
+	TaskPriorityB TaskPriority = "B"
+	TaskPriorityC TaskPriority = "C"
 )
 
 // Valid indicates whether the value is a known member of the TaskPriority enum.
@@ -176,8 +175,6 @@ func (e TaskPriority) Valid() bool {
 		return true
 	case TaskPriorityC:
 		return true
-	case TaskPriorityLessThanNil:
-		return true
 	default:
 		return false
 	}
@@ -185,16 +182,13 @@ func (e TaskPriority) Valid() bool {
 
 // Defines values for TaskRepeatToState.
 const (
-	TaskRepeatToStateLessThanNil TaskRepeatToState = "<nil>"
-	TaskRepeatToStateNEXT        TaskRepeatToState = "NEXT"
-	TaskRepeatToStateTODO        TaskRepeatToState = "TODO"
+	TaskRepeatToStateNEXT TaskRepeatToState = "NEXT"
+	TaskRepeatToStateTODO TaskRepeatToState = "TODO"
 )
 
 // Valid indicates whether the value is a known member of the TaskRepeatToState enum.
 func (e TaskRepeatToState) Valid() bool {
 	switch e {
-	case TaskRepeatToStateLessThanNil:
-		return true
 	case TaskRepeatToStateNEXT:
 		return true
 	case TaskRepeatToStateTODO:
@@ -219,12 +213,53 @@ func (e TransitionResultWarnings) Valid() bool {
 	}
 }
 
+// Defines values for UpdateTaskPriority.
+const (
+	UpdateTaskPriorityA UpdateTaskPriority = "A"
+	UpdateTaskPriorityB UpdateTaskPriority = "B"
+	UpdateTaskPriorityC UpdateTaskPriority = "C"
+)
+
+// Valid indicates whether the value is a known member of the UpdateTaskPriority enum.
+func (e UpdateTaskPriority) Valid() bool {
+	switch e {
+	case UpdateTaskPriorityA:
+		return true
+	case UpdateTaskPriorityB:
+		return true
+	case UpdateTaskPriorityC:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateTaskRepeatToState.
+const (
+	UpdateTaskRepeatToStateNEXT UpdateTaskRepeatToState = "NEXT"
+	UpdateTaskRepeatToStateTODO UpdateTaskRepeatToState = "TODO"
+)
+
+// Valid indicates whether the value is a known member of the UpdateTaskRepeatToState enum.
+func (e UpdateTaskRepeatToState) Valid() bool {
+	switch e {
+	case UpdateTaskRepeatToStateNEXT:
+		return true
+	case UpdateTaskRepeatToStateTODO:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TransitionTaskParamsAction.
 const (
 	Cancel   TransitionTaskParamsAction = "cancel"
 	Complete TransitionTaskParamsAction = "complete"
+	Next     TransitionTaskParamsAction = "next"
 	Skip     TransitionTaskParamsAction = "skip"
 	Start    TransitionTaskParamsAction = "start"
+	Todo     TransitionTaskParamsAction = "todo"
 	Wait     TransitionTaskParamsAction = "wait"
 )
 
@@ -235,9 +270,13 @@ func (e TransitionTaskParamsAction) Valid() bool {
 		return true
 	case Complete:
 		return true
+	case Next:
+		return true
 	case Skip:
 		return true
 	case Start:
+		return true
+	case Todo:
 		return true
 	case Wait:
 		return true
@@ -273,6 +312,14 @@ type AgendaKind string
 // AgendaList defines model for AgendaList.
 type AgendaList struct {
 	Items []AgendaEntry `json:"items"`
+}
+
+// CreateProject defines model for CreateProject.
+type CreateProject struct {
+	Body *string `json:"body,omitempty"`
+
+	// Title Same rules as task titles, and must not start with a task state such as TODO.
+	Title string `json:"title"`
 }
 
 // CreateTask defines model for CreateTask.
@@ -340,6 +387,23 @@ type Problem struct {
 
 // ProblemCode defines model for Problem.Code.
 type ProblemCode string
+
+// Project defines model for Project.
+type Project struct {
+	ID ID `json:"id"`
+
+	// LocationHint File the project is in, for debugging only. Not an identifier.
+	LocationHint string `json:"location_hint"`
+
+	// OpenTasks Tasks below the project in TODO, NEXT, DOING or WAITING.
+	OpenTasks int    `json:"open_tasks"`
+	Title     string `json:"title"`
+}
+
+// ProjectList defines model for ProjectList.
+type ProjectList struct {
+	Items []Project `json:"items"`
+}
 
 // ProjectRef defines model for ProjectRef.
 type ProjectRef struct {
@@ -425,6 +489,29 @@ type TransitionResult struct {
 // TransitionResultWarnings defines model for TransitionResult.Warnings.
 type TransitionResultWarnings string
 
+// UpdateTask defines model for UpdateTask.
+type UpdateTask struct {
+	Body     *string         `json:"body,omitempty"`
+	Deadline *TimestampInput `json:"deadline,omitempty"`
+
+	// ExpectedVersion The task's `version`.
+	ExpectedVersion string                   `json:"expected_version"`
+	Priority        *UpdateTaskPriority      `json:"priority,omitempty"`
+	RepeatToState   *UpdateTaskRepeatToState `json:"repeat_to_state,omitempty"`
+	Scheduled       *TimestampInput          `json:"scheduled,omitempty"`
+	Tags            *[]string                `json:"tags,omitempty"`
+	Title           *string                  `json:"title,omitempty"`
+}
+
+// UpdateTaskPriority defines model for UpdateTask.Priority.
+type UpdateTaskPriority string
+
+// UpdateTaskRepeatToState defines model for UpdateTask.RepeatToState.
+type UpdateTaskRepeatToState string
+
+// IdempotencyKey defines model for IdempotencyKey.
+type IdempotencyKey = string
+
 // Conflict RFC 9457 problem details, with a stable machine-readable `code`.
 type Conflict = Problem
 
@@ -455,11 +542,28 @@ type GetAgendaParams struct {
 	Date *Date `form:"date,omitempty" json:"date,omitempty"`
 }
 
+// CreateProjectParams defines parameters for CreateProject.
+type CreateProjectParams struct {
+	// IdempotencyKey Retrying with the same key and body returns the original response
+	// instead of creating the resource again (held in memory for 24 h,
+	// per token and endpoint).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ListTasksParams defines parameters for ListTasks.
+type ListTasksParams struct {
+	// State Comma-separated states, e.g. `NEXT` or `DONE,CANCELLED`.
+	State   *string `form:"state,omitempty" json:"state,omitempty"`
+	Project *ID     `form:"project,omitempty" json:"project,omitempty"`
+	Tag     *string `form:"tag,omitempty" json:"tag,omitempty"`
+}
+
 // CreateTaskParams defines parameters for CreateTask.
 type CreateTaskParams struct {
 	// IdempotencyKey Retrying with the same key and body returns the original response
-	// instead of creating another task (held in memory for 24 h).
-	IdempotencyKey *string `json:"Idempotency-Key,omitempty"`
+	// instead of creating the resource again (held in memory for 24 h,
+	// per token and endpoint).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListCompletedTasksParams defines parameters for ListCompletedTasks.
@@ -483,8 +587,14 @@ type ListTodayTasksParams struct {
 // TransitionTaskParamsAction defines parameters for TransitionTask.
 type TransitionTaskParamsAction string
 
+// CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
+type CreateProjectJSONRequestBody = CreateProject
+
 // CreateTaskJSONRequestBody defines body for CreateTask for application/json ContentType.
 type CreateTaskJSONRequestBody = CreateTask
+
+// UpdateTaskJSONRequestBody defines body for UpdateTask for application/json ContentType.
+type UpdateTaskJSONRequestBody = UpdateTask
 
 // TransitionTaskJSONRequestBody defines body for TransitionTask for application/json ContentType.
 type TransitionTaskJSONRequestBody = Transition

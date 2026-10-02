@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/FelisCatusKR/organon/api/internal/auth"
+	"github.com/FelisCatusKR/organon/api/internal/cli"
 	"github.com/FelisCatusKR/organon/api/internal/httpapi"
 	"github.com/FelisCatusKR/organon/api/internal/idem"
 	"github.com/FelisCatusKR/organon/api/internal/instance"
@@ -48,6 +49,10 @@ func main() {
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
+	}
+	// Client commands talk to the HTTP API (package cli).
+	if cli.Commands[os.Args[1]] {
+		os.Exit(cli.Run(os.Args[1:], os.Stdout, os.Stderr))
 	}
 	var err error
 	switch cmd, args := os.Args[1], os.Args[2:]; cmd {
@@ -78,7 +83,7 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `usage: organon <command>
 
-commands:
+server commands:
   serve                           run the HTTP API
   healthcheck                     check the API's /healthz
   rpc-ping                        check the engine socket
@@ -86,7 +91,8 @@ commands:
   token new --name N --scopes S   create a token (scopes: read, tasks:write)
   token hash                      hash a token read from stdin
   version
-`)
+
+`+cli.Usage+"\n")
 }
 
 func env(name, fallback string) string {

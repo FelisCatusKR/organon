@@ -175,12 +175,21 @@ a modified one is a conflict."
   "FILE relative to `organon-org-dir' (a location hint, never an identifier)."
   (file-relative-name file organon-org-dir))
 
+(defun organon--discard-changes ()
+  "Drop the current buffer's unsaved changes.
+A buffer for a file that does not exist yet (a new project) is emptied
+instead: reverting it would fail and hide the original error."
+  (if (and buffer-file-name (file-exists-p buffer-file-name))
+      (revert-buffer t t t)
+    (erase-buffer)
+    (set-buffer-modified-p nil)))
+
 (defun organon--save ()
   "Save the current buffer; on failure drop the in-memory changes and fail."
   (condition-case err
       (save-buffer)
     (error
-     (revert-buffer t t t)
+     (organon--discard-changes)
      (organon-signal "internal" (format "could not save %s: %s"
                                         (organon-relative-path buffer-file-name)
                                         (error-message-string err))))))
@@ -205,7 +214,7 @@ If FN fails, the buffer is reverted so no half-done change stays in memory."
                      (organon--flush-log-notes))))
              (error
               (remove-hook 'post-command-hook 'org-add-log-note)
-              (when (buffer-modified-p) (revert-buffer t t t))
+              (when (buffer-modified-p) (organon--discard-changes))
               (signal (car err) (cdr err))))))
       (when (buffer-modified-p) (organon--save))
       result)))
