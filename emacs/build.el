@@ -6,7 +6,8 @@
 ;; Byte-compiles every organon*.el next to this file and, when native
 ;; compilation is available, writes .eln files to ./eln/.  init.el adds that
 ;; directory to `native-comp-eln-load-path' and disables JIT compilation, so the
-;; engine never compiles anything at startup.
+;; engine never compiles anything at startup.  The trampolines for the advised
+;; prompt primitives go to ./eln/ as well.
 
 ;;; Code:
 
@@ -21,6 +22,9 @@
   (when (and files (native-comp-available-p))
     (setq native-compile-target-directory (expand-file-name "eln/" dir))
     (dolist (file files)
-      (native-compile file))))
+      (native-compile file))
+    ;; Loading the engine advises the prompt primitives, which compiles their
+    ;; trampolines into `native-compile-target-directory' (see init.el).
+    (load (expand-file-name "init.el" dir) nil t)))
 
 ;;; build.el ends here

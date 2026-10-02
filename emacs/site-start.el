@@ -6,8 +6,9 @@
 ;;
 ;; Everything Organon loads is compiled ahead of time (see build.el) or ships
 ;; compiled with Debian; compiling at runtime costs minutes of CPU on a Pi.
-;; Trampolines are what native-comp generates when a C primitive is advised;
-;; Organon advises prompt primitives (organon.el), so disable those too.
+;; Trampolines are what native-comp generates when a C primitive is advised.
+;; They are disabled here and enabled only while organon.el advises the prompt
+;; primitives (init.el), whose trampolines build.el compiles ahead of time.
 
 ;;; Code:
 
