@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"strings"
 	"time"
@@ -93,11 +94,17 @@ func (s *Server) authorize(scope string, h http.HandlerFunc) http.Handler {
 	})
 }
 
+// clientAddr is the address failed authentications are counted against. The
+// configured header is trusted as set by the proxy in front of the API: for a
+// list (X-Forwarded-For) the last entry is the one that proxy appended. A value
+// that is not an IP address is ignored.
 func (s *Server) clientAddr(r *http.Request) string {
 	if s.ClientIPHeader != "" {
 		if v := r.Header.Get(s.ClientIPHeader); v != "" {
-			first, _, _ := strings.Cut(v, ",")
-			return strings.TrimSpace(first)
+			last := v[strings.LastIndex(v, ",")+1:]
+			if addr, err := netip.ParseAddr(strings.TrimSpace(last)); err == nil {
+				return addr.Unmap().String()
+			}
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -134,7 +141,7 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 func writeJSON(w http.ResponseWriter, status int, v any) []byte {
 	body, err := json.Marshal(v)
 	if err != nil {
-		writeProblem(w, http.StatusInternalServerError, "internal", "encoding response: "+err.Error(), nil)
+		writeProblem(w, http.StatusInternalServerError, "internal", "could not encode the response", nil)
 		return nil
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -161,11 +168,14 @@ func writeProblem(w http.ResponseWriter, status int, code, detail string, ext ma
 	w.Write(body)
 }
 
-// writeEngineError maps an engine error to an HTTP problem.
-func writeEngineError(w http.ResponseWriter, err error) {
+// writeEngineError maps an engine error to an HTTP problem. Engine-side
+// failures are logged; their messages (socket paths, Lisp errors) are not sent
+// to the client.
+func (s *Server) writeEngineError(w http.ResponseWriter, r *http.Request, err error) {
 	var rpcErr *rpc.Error
 	if !errors.As(err, &rpcErr) {
-		writeProblem(w, http.StatusInternalServerError, "internal", err.Error(), nil)
+		s.logEngineError(r, "internal", err)
+		writeProblem(w, http.StatusInternalServerError, "internal", "internal error", nil)
 		return
 	}
 	switch rpcErr.Code {
@@ -176,9 +186,17 @@ func writeEngineError(w http.ResponseWriter, err error) {
 	case rpc.CodeConflict:
 		writeProblem(w, http.StatusConflict, "conflict", rpcErr.Message, rpcErr.Data)
 	case rpc.CodeUnavailable:
-		writeProblem(w, http.StatusServiceUnavailable, "engine_unavailable", rpcErr.Message, nil)
+		s.logEngineError(r, rpcErr.Code, err)
+		writeProblem(w, http.StatusServiceUnavailable, "engine_unavailable", "the engine is unavailable", nil)
 	default:
-		writeProblem(w, http.StatusInternalServerError, "internal", rpcErr.Message, nil)
+		s.logEngineError(r, rpcErr.Code, err)
+		writeProblem(w, http.StatusInternalServerError, "internal", "internal error", nil)
+	}
+}
+
+func (s *Server) logEngineError(r *http.Request, code string, err error) {
+	if s.Logger != nil {
+		s.Logger.Error("engine error", "method", r.Method, "path", r.URL.Path, "code", code, "error", err)
 	}
 }
 
@@ -239,7 +257,7 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	if err := s.Engine.Call(ctx, "ping", nil, nil); err != nil {
-		writeEngineError(w, err)
+		s.writeEngineError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -248,7 +266,7 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 	var meta model.Meta
 	if err := s.Engine.Call(r.Context(), "meta", nil, &meta); err != nil {
-		writeEngineError(w, err)
+		s.writeEngineError(w, r, err)
 		return
 	}
 	meta.Version = s.Version
@@ -269,7 +287,7 @@ func (s *Server) agenda(w http.ResponseWriter, r *http.Request) {
 	}
 	var items []model.AgendaEntry
 	if err := s.Engine.Call(r.Context(), "agenda.day", dateParams(date), &items); err != nil {
-		writeEngineError(w, err)
+		s.writeEngineError(w, r, err)
 		return
 	}
 	for i := range items {
@@ -295,7 +313,7 @@ func (s *Server) taskList(method string, takesDate bool) http.HandlerFunc {
 		}
 		var items []model.Task
 		if err := s.Engine.Call(r.Context(), method, params, &items); err != nil {
-			writeEngineError(w, err)
+			s.writeEngineError(w, r, err)
 			return
 		}
 		for i := range items {
@@ -315,7 +333,7 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	}
 	var task model.Task
 	if err := s.Engine.Call(r.Context(), "task.get", map[string]any{"id": id}, &task); err != nil {
-		writeEngineError(w, err)
+		s.writeEngineError(w, r, err)
 		return
 	}
 	task.Normalize()
@@ -342,6 +360,9 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		switch outcome, stored := s.Idempotency.Begin(storeKey, hex.EncodeToString(sum[:])); outcome {
 		case idem.Replay:
 			w.Header().Set("Content-Type", "application/json")
+			if stored.Location != "" {
+				w.Header().Set("Location", stored.Location)
+			}
 			w.Header().Set("Idempotent-Replayed", "true")
 			w.WriteHeader(stored.Status)
 			w.Write(stored.Body)
@@ -360,14 +381,15 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		if storeKey != "" {
 			s.Idempotency.Abort(storeKey)
 		}
-		writeEngineError(w, err)
+		s.writeEngineError(w, r, err)
 		return
 	}
 	task.Normalize()
-	w.Header().Set("Location", "/api/v1/tasks/"+task.ID)
+	location := "/api/v1/tasks/" + task.ID
+	w.Header().Set("Location", location)
 	body := writeJSON(w, http.StatusCreated, task)
 	if storeKey != "" {
-		s.Idempotency.Finish(storeKey, idem.Response{Status: http.StatusCreated, Body: body})
+		s.Idempotency.Finish(storeKey, idem.Response{Status: http.StatusCreated, Body: body, Location: location})
 	}
 }
 
@@ -401,7 +423,7 @@ func (s *Server) transition(w http.ResponseWriter, r *http.Request) {
 	}
 	var result model.TransitionResult
 	if err := s.Engine.Call(r.Context(), "task.transition", params, &result); err != nil {
-		writeEngineError(w, err)
+		s.writeEngineError(w, r, err)
 		return
 	}
 	result.Task.Normalize()

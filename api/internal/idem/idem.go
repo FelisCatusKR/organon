@@ -13,8 +13,9 @@ import (
 
 // Response is a stored HTTP response.
 type Response struct {
-	Status int
-	Body   []byte
+	Status   int
+	Body     []byte
+	Location string
 }
 
 // Outcome of Begin.

@@ -158,7 +158,8 @@ func TestHealthNeedsNoToken(t *testing.T) {
 	engine.answers["ping"] = func(map[string]any) (any, error) {
 		return nil, &rpc.Error{Code: rpc.CodeUnavailable, Message: "Missing organon.json"}
 	}
-	if res := do(t, h, "GET", "/healthz", "", ""); res.status != 503 || res.body["code"] != "engine_unavailable" {
+	if res := do(t, h, "GET", "/healthz", "", ""); res.status != 503 || res.body["code"] != "engine_unavailable" ||
+		strings.Contains(res.raw, "organon.json") {
 		t.Fatalf("got %d %s", res.status, res.raw)
 	}
 }
@@ -203,6 +204,23 @@ func TestClientIPHeaderSeparatesClients(t *testing.T) {
 	}
 	if res := do(t, h, "GET", "/api/v1/meta", readToken, "", "CF-Connecting-IP", "203.0.113.2"); res.status != 200 {
 		t.Fatalf("other client: %d %s", res.status, res.raw)
+	}
+}
+
+func TestClientIPHeaderIgnoresNonAddresses(t *testing.T) {
+	engine, _ := newTestServer(t)
+	tokens, _ := auth.Parse(strings.NewReader("reader read " + auth.Hash(readToken) + "\n"))
+	h := (&Server{Engine: engine, Tokens: tokens, Limiter: auth.NewFailureLimiter(1, time.Minute),
+		Idempotency: idem.New(10, time.Hour), ClientIPHeader: "X-Forwarded-For"}).Handler()
+	// Made-up values fall back to the TCP peer, so they cannot dodge the limit.
+	do(t, h, "GET", "/api/v1/meta", "wrong", "", "X-Forwarded-For", "junk-1")
+	if res := do(t, h, "GET", "/api/v1/meta", "wrong", "", "X-Forwarded-For", "junk-2"); res.status != 429 {
+		t.Fatalf("non-address header: %d", res.status)
+	}
+	// In a list, the entry the proxy appended counts, not the client-supplied ones.
+	do(t, h, "GET", "/api/v1/meta", "wrong", "", "X-Forwarded-For", "198.51.100.1, 203.0.113.9")
+	if res := do(t, h, "GET", "/api/v1/meta", "wrong", "", "X-Forwarded-For", "198.51.100.2, 203.0.113.9"); res.status != 429 {
+		t.Fatalf("spoofed first entry: %d", res.status)
 	}
 }
 
@@ -318,6 +336,9 @@ func TestIdempotentCreate(t *testing.T) {
 	second := do(t, h, "POST", "/api/v1/tasks", writeToken, `{ "title" : "Pay rent" }`, "Idempotency-Key", "k-1")
 	if first.status != 201 || second.status != 201 || first.raw != second.raw {
 		t.Fatalf("first %d %s / second %d %s", first.status, first.raw, second.status, second.raw)
+	}
+	if second.header.Get("Location") != first.header.Get("Location") || second.header.Get("Location") == "" {
+		t.Fatalf("replay Location = %q, first %q", second.header.Get("Location"), first.header.Get("Location"))
 	}
 	if second.header.Get("Idempotent-Replayed") != "true" {
 		t.Fatal("replay not marked")

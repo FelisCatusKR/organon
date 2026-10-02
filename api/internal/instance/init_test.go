@@ -47,7 +47,7 @@ func TestInitRefusesExistingInstance(t *testing.T) {
 }
 
 func TestInitRejectsBadZone(t *testing.T) {
-	for _, zone := range []string{"", "Local", "Mars/Olympus", "../etc/passwd"} {
+	for _, zone := range []string{"", "Local", "Mars/Olympus", "../etc/passwd", "localtime", "posixrules", "Factory", "leapseconds"} {
 		if err := Init(t.TempDir(), Config{CalendarTZ: zone, DoingLimit: 3}); err == nil {
 			t.Fatalf("accepted zone %q", zone)
 		}

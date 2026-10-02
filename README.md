@@ -56,7 +56,7 @@ Settings (environment variables or a `.env` file next to `compose.yaml`):
 | `ORGANON_TOKENS` | `./tokens` | Host file with token hashes |
 | `ORGANON_UID` / `ORGANON_GID` | `1000` | Owner of the data directory. Docker runs as root otherwise and your files would become root-owned |
 | `ORGANON_BIND` / `ORGANON_PORT` | `127.0.0.1` / `8080` | Where the API listens on the host |
-| `ORGANON_CLIENT_IP_HEADER` | – | Header with the real client address behind a proxy, e.g. `CF-Connecting-IP` |
+| `ORGANON_CLIENT_IP_HEADER` | – | Header with the real client address behind a proxy, e.g. `CF-Connecting-IP`. Set it only when every request reaches the API through that proxy: the header is trusted as given (for `X-Forwarded-For`, its last entry) |
 | `ORGANON_IMAGE` | `ghcr.io/feliscatuskr/organon:latest` | Image to run |
 
 **Rootless Podman.** Run the same commands with `podman compose`, or with `docker-compose` pointed at the

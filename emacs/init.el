@@ -31,6 +31,9 @@
       ;; Write to a temp file and rename: a reader (or a backup) never sees a
       ;; half-written file.
       file-precious-flag t
+      ;; ...and make the temp file durable before the rename, so that a power
+      ;; cut (a Pi on an SD card) cannot leave an empty or stale file behind.
+      write-region-inhibit-fsync nil
       ;; Files changed on disk by another process are re-read without asking
       ;; (find-file-noselect would otherwise prompt and block the daemon).
       revert-without-query '(".")
