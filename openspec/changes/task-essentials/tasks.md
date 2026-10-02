@@ -16,10 +16,10 @@
 
 ## 3. CLI
 
-- [ ] 3.1 Implement `internal/client` (typed HTTP client, problem documents as errors) and verify unit tests against an `httptest` server
-- [ ] 3.2 Implement configuration (env over file, permission check) and verify cli: Environment wins over the file, Missing configuration, Config file readable by others
-- [ ] 3.3 Implement short-ID resolution for tasks and projects and verify cli: Unique prefix, Ambiguous prefix (and unknown prefix)
-- [ ] 3.4 Implement the commands and output (D6) and verify cli: Add a monthly bill (exact request body), Complete a repeating task (read-then-transition), API error (text and `--json`), JSON output
+- [x] 3.1 Implement `internal/client` (typed HTTP client, problem documents as errors) and verify unit tests against an `httptest` server
+- [x] 3.2 Implement configuration (env over file, permission check) and verify cli: Environment wins over the file, Missing configuration, Config file readable by others
+- [x] 3.3 Implement short-ID resolution for tasks and projects and verify cli: Unique prefix, Ambiguous prefix (and unknown prefix)
+- [x] 3.4 Implement the commands and output (D6) and verify cli: Add a monthly bill (exact request body), Complete a repeating task (read-then-transition), API error (text and `--json`), JSON output
 - [ ] 3.5 Document the CLI in README (configure, everyday commands; keep curl as reference) and verify every documented command runs as written against a local stack
 
 ## 4. End-to-end
