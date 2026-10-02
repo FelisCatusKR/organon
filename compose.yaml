@@ -13,7 +13,8 @@
 #   docker compose up -d
 #
 # Settings (environment or .env):
-#   ORGANON_IMAGE             image to run (default: ghcr.io/feliscatuskr/organon:latest)
+#   ORGANON_IMAGE             image to run (default: ghcr.io/feliscatuskr/organon:main, a
+#                             development build of the latest main; pin :sha-<7> to stay put)
 #   ORGANON_DATA              host directory with your data (default: ./data)
 #   ORGANON_TOKENS            host file with token hashes (default: ./tokens)
 #   ORGANON_UID / ORGANON_GID owner of ORGANON_DATA (default 1000); Docker runs as root
@@ -26,7 +27,7 @@
 name: organon
 
 x-hardening: &hardening
-  image: ${ORGANON_IMAGE:-ghcr.io/feliscatuskr/organon:latest}
+  image: ${ORGANON_IMAGE:-ghcr.io/feliscatuskr/organon:main}
   user: "${ORGANON_UID:-1000}:${ORGANON_GID:-1000}"
   userns_mode: ${ORGANON_USERNS_MODE:-}
   read_only: true

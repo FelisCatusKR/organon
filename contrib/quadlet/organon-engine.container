@@ -4,7 +4,7 @@ Description=Organon engine (headless Emacs + Org)
 
 [Container]
 ContainerName=organon-engine
-Image=ghcr.io/feliscatuskr/organon:latest
+Image=ghcr.io/feliscatuskr/organon:main
 Exec=emacs -q --fg-daemon -l /opt/organon/emacs/init.el -f organon-start
 # No network: the engine is reached only through the socket in organon-run.
 Network=none

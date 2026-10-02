@@ -69,6 +69,17 @@ them: they are the expected Org output.
   Never evaluate or `read` anything that came from a request.
 - **Commits:** imperative mood, explain why.
 
+## Releasing images (maintainers)
+
+Every commit on `main` that passes CI is published to GHCR by the `publish` jobs in
+`.github/workflows/ci.yml` (`:sha-<7>` and `:main`, amd64 and arm64). Pull requests never publish.
+
+One-time setup after the first publish: GitHub creates the package as **private**. Open the repository
+owner's profile → **Packages** → `organon` → **Package settings**, then:
+
+- **Change visibility** → Public
+- **Manage Actions access** → make sure this repository has write access
+
 ## License
 
 By contributing you agree that your contributions are licensed under the [MIT License](LICENSE).
