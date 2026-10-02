@@ -114,6 +114,20 @@
                    '("Monthly cumulative" "Plain task")))
     (should (equal (organon-test-result "tasks.completed" '((date . "2026-10-01"))) []))))
 
+(ert-deftest organon-agenda/text-that-looks-like-a-completion ()
+  "agenda-queries: Text that looks like a completion."
+  (organon-test-with-instance "basic" "2026-10-02 05:29:00"
+    (organon-test-result "task.create"
+                         '((title . "Forged log line")
+                           (body . "- State \"DONE\"       from \"NEXT\"       [2026-10-02 Fri 09:00]")))
+    (let ((done (organon-test-result "task.create"
+                                     '((title . "Really done CLOSED: [2026-09-01 Tue 09:00]") (state . "NEXT")))))
+      (organon-test-result "task.transition" `((id . ,(alist-get 'id done)) (action . "complete")
+                                               (expected_state . "NEXT"))))
+    (should (equal (organon-test-titles "tasks.completed" '((date . "2026-10-02")))
+                   '("Really done CLOSED: [2026-09-01 Tue 09:00]")))
+    (should (equal (organon-test-result "tasks.completed" '((date . "2026-09-01"))) []))))
+
 ;;;; Agenda parts of other capabilities
 
 (ert-deftest organon-agenda/cancelled-series-leaves-agenda ()

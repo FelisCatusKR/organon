@@ -289,10 +289,12 @@ type CreateTask struct {
 	RepeatToState *CreateTaskRepeatToState `json:"repeat_to_state,omitempty"`
 	Scheduled     *TimestampInput          `json:"scheduled,omitempty"`
 	State         *CreateTaskState         `json:"state,omitempty"`
-	Tags          *[]string                `json:"tags,omitempty"`
 
-	// Title One line. Must not start with a priority cookie (`[#A]`) or
-	// `COMMENT`, nor end with a tag list (`:tag:`). Active timestamps
+	// Tags `ARCHIVE` is rejected: Org hides archived tasks from the agenda.
+	Tags *[]string `json:"tags,omitempty"`
+
+	// Title One line. Must not contain a priority cookie (`[#A]`), start with
+	// `COMMENT`, or end with a tag list (`:tag:`). Active timestamps
 	// are stored inactive.
 	Title string `json:"title"`
 }
