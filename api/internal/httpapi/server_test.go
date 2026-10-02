@@ -192,6 +192,45 @@ func TestResponsesAreNotCached(t *testing.T) {
 	}
 }
 
+// task-lifecycle: Retry after an engine timeout (API level)
+func TestCreateSendsHashedKeyToEngine(t *testing.T) {
+	engine, h := newTestServer(t)
+	timeouts := 1
+	engine.answers["task.create"] = func(map[string]any) (any, error) {
+		if timeouts > 0 {
+			timeouts--
+			return nil, &rpc.Error{Code: rpc.CodeUnavailable, Message: "engine did not answer within 10s"}
+		}
+		return sampleTask(taskID), nil
+	}
+	if res := do(t, h, "POST", "/api/v1/tasks", writeToken, `{"title":"Pay"}`, "Idempotency-Key", "client-key-1"); res.status != 503 {
+		t.Fatalf("first: %d %s", res.status, res.raw)
+	}
+	if res := do(t, h, "POST", "/api/v1/tasks", writeToken, `{"title":"Pay"}`, "Idempotency-Key", "client-key-1"); res.status != 201 {
+		t.Fatalf("retry: %d %s", res.status, res.raw)
+	}
+	do(t, h, "POST", "/api/v1/tasks", writeToken, `{"title":"Pay"}`)
+
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	n := len(engine.params)
+	first, retry, unkeyed := engine.params[n-3], engine.params[n-2], engine.params[n-1]
+	key, _ := first["idempotency_key"].(string)
+	if len(key) != 64 || strings.Contains(key, "client-key-1") || strings.Contains(key, "writer") {
+		t.Fatalf("engine key %q", key)
+	}
+	if retry["idempotency_key"] != key || retry["idempotency_fingerprint"] != first["idempotency_fingerprint"] ||
+		len(first["idempotency_fingerprint"].(string)) != 64 {
+		t.Fatalf("retry sent %v, first %v", retry, first)
+	}
+	if first["title"] != "Pay" {
+		t.Fatalf("payload lost: %v", first)
+	}
+	if _, ok := unkeyed["idempotency_key"]; ok {
+		t.Fatalf("unkeyed create sent a key: %v", unkeyed)
+	}
+}
+
 // api-access: Read-only token tries to write
 func TestReadOnlyTokenCannotWrite(t *testing.T) {
 	engine, h := newTestServer(t)
