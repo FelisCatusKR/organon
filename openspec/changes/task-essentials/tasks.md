@@ -9,10 +9,10 @@
 
 ## 2. API
 
-- [ ] 2.1 Extend `api/openapi.yaml` (UpdateTask, ProjectInput, Project, ProjectList, list query parameters, `todo`/`next` actions), regenerate types, and verify `mise run lint:openapi` and `mise run check:generated` pass
-- [ ] 2.2 Implement `PATCH /api/v1/tasks/{id}` with presence/null decoding into set/clear (D5) and verify unit tests: absent vs null fields, unknown field and missing `expected_version` → 422, stale version → 409
-- [ ] 2.3 Implement `GET /api/v1/tasks` with query validation and verify unit tests for task-listing: Invalid filter, and that valid filters reach the engine unchanged
-- [ ] 2.4 Implement `POST/GET /api/v1/projects`, extend scopes, and verify unit tests for api-access: Read-only token tries to edit or create a project; extend the contract test to the new endpoints
+- [x] 2.1 Extend `api/openapi.yaml` (UpdateTask, ProjectInput, Project, ProjectList, list query parameters, `todo`/`next` actions), regenerate types, and verify `mise run lint:openapi` and `mise run check:generated` pass
+- [x] 2.2 Implement `PATCH /api/v1/tasks/{id}` with presence/null decoding into set/clear (D5) and verify unit tests: absent vs null fields, unknown field and missing `expected_version` → 422, stale version → 409
+- [x] 2.3 Implement `GET /api/v1/tasks` with query validation and verify unit tests for task-listing: Invalid filter, and that valid filters reach the engine unchanged
+- [x] 2.4 Implement `POST/GET /api/v1/projects`, extend scopes, and verify unit tests for api-access: Read-only token tries to edit or create a project; extend the contract test to the new endpoints
 
 ## 3. CLI
 

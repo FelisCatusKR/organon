@@ -67,8 +67,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/tasks/overdue", s.authorize(read, s.taskList("tasks.overdue", true)))
 	mux.Handle("GET /api/v1/tasks/waiting", s.authorize(read, s.taskList("tasks.waiting", false)))
 	mux.Handle("GET /api/v1/tasks/completed", s.authorize(read, s.taskList("tasks.completed", true)))
+	mux.Handle("GET /api/v1/tasks", s.authorize(read, s.listTasks))
 	mux.Handle("GET /api/v1/tasks/{id}", s.authorize(read, s.getTask))
+	mux.Handle("PATCH /api/v1/tasks/{id}", s.authorize(write, s.updateTask))
 	mux.Handle("POST /api/v1/tasks", s.authorize(write, s.createTask))
+	mux.Handle("GET /api/v1/projects", s.authorize(read, s.listProjects))
+	mux.Handle("POST /api/v1/projects", s.authorize(write, s.createProject))
 	mux.Handle("POST /api/v1/tasks/{id}/{action}", s.authorize(write, s.transition))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusNotFound, model.ProblemCodeNotFound, "no such endpoint", nil)
@@ -448,7 +452,9 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var actions = map[string]bool{"start": true, "wait": true, "complete": true, "skip": true, "cancel": true}
+var actions = map[string]bool{
+	"start": true, "wait": true, "complete": true, "skip": true, "cancel": true, "todo": true, "next": true,
+}
 
 func (s *Server) transition(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
@@ -486,4 +492,138 @@ func (s *Server) transition(w http.ResponseWriter, r *http.Request) {
 		result.Warnings = []model.TransitionResultWarnings{}
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// ---- task-essentials: listing, editing, projects ------------------------------------
+
+var (
+	taskStates = map[string]bool{"TODO": true, "NEXT": true, "DOING": true, "WAITING": true, "DONE": true, "CANCELLED": true}
+	tagRE      = regexp.MustCompile(`^[A-Za-z0-9_@#%]+$`)
+)
+
+// listTasks validates the filters here, so that malformed values never reach
+// the engine (spec: task-listing, Invalid filter).
+func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	params := map[string]any{}
+	if v := q.Get("state"); v != "" {
+		states := strings.Split(v, ",")
+		for _, st := range states {
+			if !taskStates[st] {
+				invalid(w, "state must be a comma-separated list of TODO, NEXT, DOING, WAITING, DONE, CANCELLED")
+				return
+			}
+		}
+		params["states"] = states
+	}
+	if v := q.Get("project"); v != "" {
+		if !uuidRE.MatchString(v) {
+			invalid(w, "project must be a lowercase UUID")
+			return
+		}
+		params["project"] = v
+	}
+	if v := q.Get("tag"); v != "" {
+		if !tagRE.MatchString(v) {
+			invalid(w, "tag must contain only letters, digits and _@#%")
+			return
+		}
+		params["tag"] = v
+	}
+	var items []model.Task
+	if err := s.Engine.Call(r.Context(), "tasks.list", params, &items); err != nil {
+		s.writeEngineError(w, r, err)
+		return
+	}
+	for i := range items {
+		items[i].Normalize()
+	}
+	if items == nil {
+		items = []model.Task{}
+	}
+	writeJSON(w, http.StatusOK, model.TaskList{Items: items})
+}
+
+var (
+	updatableFields = map[string]bool{
+		"title": true, "body": true, "priority": true, "tags": true,
+		"scheduled": true, "deadline": true, "repeat_to_state": true,
+	}
+	clearableFields = map[string]bool{"priority": true, "scheduled": true, "deadline": true, "repeat_to_state": true}
+)
+
+// updateTask decodes the body field by field, because a PATCH must tell an
+// absent field (unchanged) from null (clear), which a struct cannot. The
+// engine receives set (new values, validated there) and clear (names).
+func (s *Server) updateTask(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var fields map[string]json.RawMessage
+	if _, ok := decodeBody(w, r, &fields); !ok {
+		return
+	}
+	var version string
+	if raw, ok := fields["expected_version"]; !ok || json.Unmarshal(raw, &version) != nil || version == "" {
+		invalid(w, "expected_version is required (the task's version)")
+		return
+	}
+	set := map[string]json.RawMessage{}
+	clear := []string{}
+	for name, raw := range fields {
+		if name == "expected_version" {
+			continue
+		}
+		if !updatableFields[name] {
+			invalid(w, "unknown field "+name)
+			return
+		}
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			if !clearableFields[name] {
+				invalid(w, name+" cannot be null")
+				return
+			}
+			clear = append(clear, name)
+			continue
+		}
+		set[name] = raw
+	}
+	if len(set) == 0 && len(clear) == 0 {
+		invalid(w, "nothing to change")
+		return
+	}
+	params := map[string]any{"id": id, "expected_version": version, "set": set, "clear": clear}
+	var task model.Task
+	if err := s.Engine.Call(r.Context(), "task.update", params, &task); err != nil {
+		s.writeEngineError(w, r, err)
+		return
+	}
+	task.Normalize()
+	writeJSON(w, http.StatusOK, task)
+}
+
+func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
+	var items []model.Project
+	if err := s.Engine.Call(r.Context(), "projects.list", nil, &items); err != nil {
+		s.writeEngineError(w, r, err)
+		return
+	}
+	if items == nil {
+		items = []model.Project{}
+	}
+	writeJSON(w, http.StatusOK, model.ProjectList{Items: items})
+}
+
+func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
+	var req model.CreateProject
+	if _, ok := decodeBody(w, r, &req); !ok {
+		return
+	}
+	var project model.Project
+	if err := s.Engine.Call(r.Context(), "project.create", req, &project); err != nil {
+		s.writeEngineError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, project)
 }

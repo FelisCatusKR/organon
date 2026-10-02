@@ -29,6 +29,8 @@ tags:
     description: Tasks (Org headings with a TODO state) and their state changes.
   - name: agenda
     description: The Org agenda for a day.
+  - name: projects
+    description: Projects (level-1 headings in org/projects/) that group tasks.
 
 paths:
   /healthz:
@@ -145,6 +147,37 @@ paths:
         "503": { $ref: "#/components/responses/EngineUnavailable" }
 
   /api/v1/tasks:
+    get:
+      tags: [tasks]
+      operationId: listTasks
+      summary: Tasks by state, project and tag, with or without dates
+      description: |
+        Tasks in `org/tasks/` and `org/projects/`, in file order. Without
+        `state`, the open states (TODO, NEXT, DOING, WAITING) are listed.
+        Filters combine with AND; `tag` matches the task's own tags.
+      parameters:
+        - name: state
+          in: query
+          required: false
+          description: Comma-separated states, e.g. `NEXT` or `DONE,CANCELLED`.
+          schema:
+            type: string
+            pattern: "^(TODO|NEXT|DOING|WAITING|DONE|CANCELLED)(,(TODO|NEXT|DOING|WAITING|DONE|CANCELLED))*$"
+        - name: project
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/ID" }
+        - name: tag
+          in: query
+          required: false
+          schema: { type: string, pattern: "^[A-Za-z0-9_@#%]+$" }
+      responses:
+        "200": { $ref: "#/components/responses/TaskList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
     post:
       tags: [tasks]
       operationId: createTask
@@ -198,6 +231,36 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/EngineUnavailable" }
 
+    patch:
+      tags: [tasks]
+      operationId: updateTask
+      summary: Change some fields of a task
+      description: |
+        Only the fields present change. `null` clears `priority`,
+        `scheduled`, `deadline` and `repeat_to_state`. A planning date that is
+        sent replaces the old one entirely, repeater and warning included.
+        `expected_version` (the task's `version`) is required.
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateTask" }
+      responses:
+        "200":
+          description: The task after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
   /api/v1/tasks/{id}/{action}:
     post:
       tags: [tasks]
@@ -208,6 +271,7 @@ paths:
         - `skip` → CANCELLED for this occurrence; a repeating task moves to
           its next occurrence.
         - `cancel` → CANCELLED and, for a repeating task, ends the series.
+        - `todo` → TODO, `next` → NEXT; on a closed task this reopens it.
 
         `expected_state` is always required. `expected_version` (the task's
         `version`) is required for repeating tasks, which return to an open
@@ -220,7 +284,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [start, wait, complete, skip, cancel]
+            enum: [start, wait, complete, skip, cancel, todo, next]
       requestBody:
         required: true
         content:
@@ -236,6 +300,42 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/projects:
+    get:
+      tags: [projects]
+      operationId: listProjects
+      summary: All projects with their number of open tasks
+      responses:
+        "200":
+          description: Projects.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+    post:
+      tags: [projects]
+      operationId: createProject
+      summary: Create a project (a new file under projects/)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateProject" }
+      responses:
+        "201":
+          description: The created project.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/Invalid" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/EngineUnavailable" }
@@ -476,6 +576,62 @@ components:
         project_id:
           $ref: "#/components/schemas/ID"
           description: A level-1 heading in projects/; the task becomes its last child.
+
+    UpdateTask:
+      type: object
+      required: [expected_version]
+      minProperties: 2
+      additionalProperties: false
+      properties:
+        expected_version: { type: string, description: The task's `version`. }
+        title: { type: string, maxLength: 500 }
+        body: { type: string }
+        priority: { type: [string, "null"], enum: [A, B, C, null] }
+        tags:
+          type: array
+          items: { type: string, pattern: "^[A-Za-z0-9_@#%]+$" }
+        scheduled:
+          oneOf:
+            - $ref: "#/components/schemas/TimestampInput"
+            - type: "null"
+        deadline:
+          oneOf:
+            - $ref: "#/components/schemas/TimestampInput"
+            - type: "null"
+        repeat_to_state: { type: [string, "null"], enum: [TODO, NEXT, null] }
+
+    Project:
+      type: object
+      required: [id, title, open_tasks, location_hint]
+      properties:
+        id: { $ref: "#/components/schemas/ID" }
+        title: { type: string }
+        open_tasks:
+          type: integer
+          minimum: 0
+          description: Tasks below the project in TODO, NEXT, DOING or WAITING.
+        location_hint:
+          type: string
+          description: File the project is in, for debugging only. Not an identifier.
+
+    ProjectList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Project" }
+
+    CreateProject:
+      type: object
+      required: [title]
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          maxLength: 500
+          description: Same rules as task titles.
+        body: { type: string }
 
     Transition:
       type: object
