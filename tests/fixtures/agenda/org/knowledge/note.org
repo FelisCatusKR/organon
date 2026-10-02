@@ -1,0 +1,3 @@
+#+title: Note
+
+* Note mentioning <2026-10-02 Fri>

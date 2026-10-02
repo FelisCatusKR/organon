@@ -1,0 +1,8 @@
+# Lint rules for api/openapi.yaml (`mise run lint:openapi`).
+extends:
+  - recommended
+rules:
+  # The server URL is an example for local use; deployments put a proxy in front.
+  no-server-example.com: off
+  # Problem responses are documented once as shared components.
+  operation-4xx-problem-details-rfc7807: error

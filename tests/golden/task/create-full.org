@@ -1,0 +1,6 @@
+#+title: Inbox
+* NEXT [#A] Spotify 가족 요금제 납부 :bills:home:
+DEADLINE: <2026-10-25 Sun +1m -3d>
+:PROPERTIES:
+:ID:       00000000-0000-4000-8000-000000000001
+:END:

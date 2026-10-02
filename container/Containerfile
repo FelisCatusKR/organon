@@ -1,0 +1,73 @@
+# Organon image: one image, two containers (engine + api). See docs/architecture.md §10.
+#
+# Targets:
+#   runtime  production image (the last stage, so it is the default target)
+#   test     base + libfaketime, used to run ERT and clock-dependent e2e tests
+#
+# Build from the repository root:
+#   podman build -f container/Containerfile -t organon:dev .
+#   podman build -f container/Containerfile --target test -t organon:test .
+
+ARG GO_VERSION=1.27
+
+# --- Go binary --------------------------------------------------------------
+FROM docker.io/library/golang:${GO_VERSION}-trixie AS build
+WORKDIR /src/api
+COPY api/go.mod api/go.sum* ./
+RUN go mod download
+COPY api/ ./
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+      -o /out/organon ./cmd/organon
+
+# --- Base (everything the runtime image contains) ---------------------------
+FROM docker.io/library/debian:trixie-slim AS base
+
+# Emacs, Org and org-roam come from Debian so that versions are pinned by the
+# distribution and nothing is downloaded at runtime.
+RUN export DEBIAN_FRONTEND=noninteractive \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends emacs-nox elpa-org-roam tzdata \
+ && rm -rf /var/lib/apt/lists/* \
+ && dpkg-query -W -f '${Package}\t${Version}\n' > /usr/share/doc/organon-debian-packages.tsv
+
+# Writable locations. The image must run as an arbitrary UID with a read-only
+# root filesystem, so these are world-writable (sticky) mount points; named
+# volumes created from them inherit the mode.
+RUN mkdir -p /data /cache /run/organon \
+ && chmod 1777 /data /cache /run/organon
+
+COPY emacs/ /opt/organon/emacs/
+RUN cp /opt/organon/emacs/site-start.el /etc/emacs/site-start.d/00aaa-organon.el \
+ # Debian loads debian-startup before any site-start.d file can disable JIT,
+ # so compile it into the system native-lisp directory ahead of time.
+ && emacs -q --batch --eval '(progn (require (quote comp)) (setq native-compile-target-directory (car (last native-comp-eln-load-path))) (native-compile "/usr/share/emacs/site-lisp/debian-startup.el"))'
+# Ahead-of-time byte + native compilation, so that nothing is compiled at startup.
+RUN emacs -q --batch -l /opt/organon/emacs/build.el
+
+COPY --from=build /out/organon /usr/local/bin/organon
+
+ENV ORGANON_DATA_DIR=/data \
+    ORGANON_CACHE_DIR=/cache \
+    ORGANON_RUN_DIR=/run/organon \
+    HOME=/cache \
+    TZ=UTC \
+    LANG=C.UTF-8 \
+    DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent \
+    DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent
+
+USER 1000:1000
+CMD ["organon", "help"]
+
+# --- Test -------------------------------------------------------------------
+FROM base AS test
+USER root
+RUN export DEBIAN_FRONTEND=noninteractive \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends faketime \
+ && rm -rf /var/lib/apt/lists/* \
+ && ln -s "$(ls /usr/lib/*/faketime/libfaketime.so.1)" /usr/local/lib/libfaketime.so.1
+USER 1000:1000
+
+# --- Runtime (default target) ----------------------------------------------
+FROM base AS runtime

@@ -1,0 +1,115 @@
+# L2 checks (CONTRIBUTING.md): every pull request must pass all jobs.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Decides whether the expensive jobs need to run. Documentation and spec-only
+  # changes (docs/, openspec/, .claude/, *.md, LICENSE) run only `contracts`.
+  # Jobs are skipped with `if:` rather than path filters on the workflow, so that
+  # required checks report "skipped" (which counts as passing) instead of
+  # staying pending. The comparison is against the PR base, so a docs-only
+  # commit on top of a code PR still runs everything.
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "$BASE" HEAD)
+          echo "$changed"
+          if grep -qvE '^(docs/|openspec/|\.claude/)|\.md$|^LICENSE$' <<<"$changed"; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  contracts:
+    name: specs, OpenAPI, Quadlet
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - run: mise run spec:validate
+      - name: Finished OpenSpec changes are archived
+        run: mise run spec:check-archived
+      - run: mise run lint:openapi
+      - name: Generated Go types match the contract
+        run: mise run check:generated
+      - name: Quadlet units generate (dry run)
+        run: QUADLET_UNIT_DIRS="$PWD/contrib/quadlet" /usr/libexec/podman/quadlet -dryrun -user
+      - name: compose.yaml is valid
+        run: docker compose -f compose.yaml config -q
+
+  unit:
+    name: unit (${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - name: gofmt
+        working-directory: api
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w on the files above" >&2; exit 1; }
+      - name: go vet
+        working-directory: api
+        run: go vet ./... && go vet -tags e2e ./e2e/
+      - run: mise run test:go
+      - name: Build test image
+        run: docker build -f container/Containerfile --target test -t organon:test .
+      - name: ERT (inside the test image)
+        run: CONTAINER_RUNTIME=docker mise run test:elisp
+
+  e2e:
+    name: e2e ${{ matrix.runtime }} (${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [compose, podman]
+        arch: [amd64, arm64]
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - name: Build image (Docker)
+        if: matrix.runtime == 'compose'
+        run: docker build -f container/Containerfile -t organon:dev .
+      - name: Build image (Podman)
+        if: matrix.runtime == 'podman'
+        run: podman build -f container/Containerfile -t organon:dev .
+      - name: e2e
+        run: mise exec -- scripts/e2e.sh --runtime ${{ matrix.runtime }} -- -v
+      - name: e2e as UID 12345
+        if: matrix.runtime == 'podman'
+        run: mise exec -- scripts/e2e.sh --runtime podman --uid 12345 -- -v

@@ -1,0 +1,82 @@
+# Organon: official deployment definition (Docker Compose).
+#
+# One image, two containers (docs/architecture.md §10):
+#   engine  headless Emacs + Org; the only process that touches your data;
+#           no network at all.
+#   api     the HTTP API; reaches the engine only through a Unix socket in the
+#           "run" volume and never mounts your data.
+#
+# Quick start (see README.md for details):
+#   mkdir -p data && docker compose run --rm engine organon init --calendar-tz Asia/Seoul
+#   docker compose run --rm --no-deps engine organon token new --name me --scopes read,tasks:write
+#   # put the printed "tokens file line" into ./tokens (create the file before `up`)
+#   docker compose up -d
+#
+# Settings (environment or .env):
+#   ORGANON_IMAGE             image to run (default: ghcr.io/feliscatuskr/organon:latest)
+#   ORGANON_DATA              host directory with your data (default: ./data)
+#   ORGANON_TOKENS            host file with token hashes (default: ./tokens)
+#   ORGANON_UID / ORGANON_GID owner of ORGANON_DATA (default 1000); Docker runs as root
+#                             otherwise and your files would become root-owned
+#   ORGANON_USERNS_MODE       rootless Podman only: set to "keep-id" so that ORGANON_UID
+#                             is your own host user rather than a subordinate UID
+#   ORGANON_BIND / ORGANON_PORT  where the API listens on the host (default 127.0.0.1:8080)
+#   ORGANON_CLIENT_IP_HEADER  e.g. CF-Connecting-IP when behind cloudflared
+
+name: organon
+
+x-hardening: &hardening
+  image: ${ORGANON_IMAGE:-ghcr.io/feliscatuskr/organon:latest}
+  user: "${ORGANON_UID:-1000}:${ORGANON_GID:-1000}"
+  userns_mode: ${ORGANON_USERNS_MODE:-}
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+
+services:
+  engine:
+    <<: *hardening
+    command: ["emacs", "-q", "--fg-daemon", "-l", "/opt/organon/emacs/init.el", "-f", "organon-start"]
+    network_mode: none
+    tmpfs: [/tmp]
+    volumes:
+      - ${ORGANON_DATA:-./data}:/data
+      - cache:/cache
+      - run:/run/organon
+    healthcheck:
+      test: ["CMD", "organon", "rpc-ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  api:
+    <<: *hardening
+    command: ["organon", "serve"]
+    depends_on:
+      engine:
+        condition: service_healthy
+    environment:
+      ORGANON_LISTEN: 0.0.0.0:8080
+      ORGANON_TOKENS_FILE: /run/secrets/organon_tokens
+      ORGANON_CLIENT_IP_HEADER: ${ORGANON_CLIENT_IP_HEADER:-}
+    ports:
+      - "${ORGANON_BIND:-127.0.0.1}:${ORGANON_PORT:-8080}:8080"
+    volumes:
+      - run:/run/organon
+    secrets: [organon_tokens]
+    healthcheck:
+      test: ["CMD", "organon", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+secrets:
+  organon_tokens:
+    file: ${ORGANON_TOKENS:-./tokens}
+
+volumes:
+  cache: {}   # rebuildable: org-id index (and the org-roam DB from MVP-B)
+  run: {}     # the engine socket

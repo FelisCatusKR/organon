@@ -1,0 +1,33 @@
+# Organon engine: headless Emacs + Org. The only process that touches the data.
+[Unit]
+Description=Organon engine (headless Emacs + Org)
+
+[Container]
+ContainerName=organon-engine
+Image=ghcr.io/feliscatuskr/organon:latest
+Exec=emacs -q --fg-daemon -l /opt/organon/emacs/init.el -f organon-start
+# No network: the engine is reached only through the socket in organon-run.
+Network=none
+# Map your host user to the image's user, so data files stay yours.
+UserNS=keep-id:uid=1000,gid=1000
+ReadOnly=true
+DropCapability=ALL
+NoNewPrivileges=true
+Tmpfs=/tmp
+Volume=%h/organon/data:/data:Z
+Volume=organon-cache.volume:/cache
+Volume=organon-run.volume:/run/organon
+HealthCmd=organon rpc-ping
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=120s
+# systemd considers the unit started only once the engine answers.
+Notify=healthy
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,15 @@
+#+title: Household
+
+* Household
+:PROPERTIES:
+:ID:       22222222-2222-4222-8222-000000000001
+:END:
+** NEXT Existing child task
+:PROPERTIES:
+:ID:       22222222-2222-4222-8222-000000000002
+:END:
+** TODO Fix the sink
+:PROPERTIES:
+:ID:       00000000-0000-4000-8000-000000000001
+:END:
+* Not a project heading child

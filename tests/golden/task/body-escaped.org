@@ -1,0 +1,11 @@
+#+title: Inbox
+* TODO With body
+:PROPERTIES:
+:ID:       00000000-0000-4000-8000-000000000001
+:END:
+first line
+,* NEXT injected
+,#+begin_src sh
+,:PROPERTIES:
+,,* already comma
+  ,* indented

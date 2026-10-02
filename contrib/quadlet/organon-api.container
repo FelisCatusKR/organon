@@ -1,0 +1,32 @@
+# Organon HTTP API. Never mounts the data; talks to the engine over a socket.
+[Unit]
+Description=Organon API
+Requires=organon-engine.service
+After=organon-engine.service
+
+[Container]
+ContainerName=organon-api
+Image=ghcr.io/feliscatuskr/organon:latest
+Exec=organon serve
+UserNS=keep-id:uid=1000,gid=1000
+ReadOnly=true
+DropCapability=ALL
+NoNewPrivileges=true
+Environment=ORGANON_LISTEN=0.0.0.0:8080
+Environment=ORGANON_TOKENS_FILE=/run/secrets/organon_tokens
+PublishPort=127.0.0.1:8080:8080
+Volume=organon-run.volume:/run/organon
+Secret=organon-tokens,type=mount,target=/run/secrets/organon_tokens
+HealthCmd=organon healthcheck
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=10s
+Notify=healthy
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target
