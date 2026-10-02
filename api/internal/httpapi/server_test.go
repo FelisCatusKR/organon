@@ -184,7 +184,9 @@ func TestFailedAuthenticationIsRateLimited(t *testing.T) {
 			t.Fatalf("attempt %d: %d", i, res.status)
 		}
 	}
-	if res := do(t, h, "GET", "/api/v1/meta", "wrong", ""); res.status != 429 {
+	// api-access: Throttled request
+	if res := do(t, h, "GET", "/api/v1/meta", "wrong", ""); res.status != 429 || res.body["code"] != "rate_limited" ||
+		res.header.Get("Content-Type") != "application/problem+json" {
 		t.Fatalf("11th attempt: %d", res.status)
 	}
 	// Even a valid token from that address is refused for the rest of the window.
