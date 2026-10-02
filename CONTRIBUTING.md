@@ -71,4 +71,6 @@ them: they are the expected Org output.
 
 ## License
 
-By contributing you agree that your contributions are licensed under the [MIT License](LICENSE).
+By contributing you agree that your contributions are licensed under the [MIT License](LICENSE). Source files
+don't need a license header; `LICENSE` covers the repository. The Elisp libraries (`emacs/organon*.el`)
+keep the usual Emacs package header with an SPDX line.
