@@ -93,6 +93,24 @@ func (e CreateTaskState) Valid() bool {
 	}
 }
 
+// Defines values for NodeRefKind.
+const (
+	NodeRefKindNode NodeRefKind = "node"
+	NodeRefKindTask NodeRefKind = "task"
+)
+
+// Valid indicates whether the value is a known member of the NodeRefKind enum.
+func (e NodeRefKind) Valid() bool {
+	switch e {
+	case NodeRefKindNode:
+		return true
+	case NodeRefKindTask:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProblemCode.
 const (
 	ProblemCodeConflict          ProblemCode = "conflict"
@@ -314,6 +332,22 @@ type AgendaList struct {
 	Items []AgendaEntry `json:"items"`
 }
 
+// CreateNode defines model for CreateNode.
+type CreateNode struct {
+	// Aliases Other names the node is found by. One line each.
+	Aliases *[]string `json:"aliases,omitempty"`
+
+	// Body Org text below the title. Lines that would be Org structure
+	// (headings, keywords, drawers) are stored so they stay text; active
+	// timestamps are stored inactive. Org ID links
+	// (`[[id:<uuid>][label]]`) are kept and become links and backlinks.
+	Body *string   `json:"body,omitempty"`
+	Tags *[]string `json:"tags,omitempty"`
+
+	// Title One line. Active timestamps are stored inactive.
+	Title string `json:"title"`
+}
+
 // CreateProject defines model for CreateProject.
 type CreateProject struct {
 	Body *string `json:"body,omitempty"`
@@ -371,6 +405,54 @@ type Meta struct {
 	// Today Examples: 2026-10-25
 	Today   Date   `json:"today"`
 	Version string `json:"version"`
+}
+
+// Node defines model for Node.
+type Node struct {
+	Aliases []string `json:"aliases"`
+
+	// Body The node's own text: for a file, the text before its first heading;
+	// for a heading, the text before its first child heading.
+	Body string `json:"body"`
+	ID   ID     `json:"id"`
+
+	// LocationHint File the node is in, for debugging only. Not an identifier; do not rely on it.
+	LocationHint string   `json:"location_hint"`
+	Tags         []string `json:"tags"`
+	Title        string   `json:"title"`
+}
+
+// NodeList defines model for NodeList.
+type NodeList struct {
+	Items []NodeSummary `json:"items"`
+}
+
+// NodeRef defines model for NodeRef.
+type NodeRef struct {
+	ID ID `json:"id"`
+
+	// Kind Which endpoint reads the entry, `/api/v1/nodes/{id}` or `/api/v1/tasks/{id}`.
+	Kind  NodeRefKind `json:"kind"`
+	Title string      `json:"title"`
+}
+
+// NodeRefKind Which endpoint reads the entry, `/api/v1/nodes/{id}` or `/api/v1/tasks/{id}`.
+type NodeRefKind string
+
+// NodeRefList defines model for NodeRefList.
+type NodeRefList struct {
+	Items []NodeRef `json:"items"`
+}
+
+// NodeSummary defines model for NodeSummary.
+type NodeSummary struct {
+	Aliases []string `json:"aliases"`
+	ID      ID       `json:"id"`
+
+	// LocationHint File the node is in, for debugging only. Not an identifier.
+	LocationHint string   `json:"location_hint"`
+	Tags         []string `json:"tags"`
+	Title        string   `json:"title"`
 }
 
 // Problem RFC 9457 problem details, with a stable machine-readable `code`.
@@ -512,6 +594,9 @@ type UpdateTaskRepeatToState string
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
+// NodeID defines model for nodeId.
+type NodeID = ID
+
 // Conflict RFC 9457 problem details, with a stable machine-readable `code`.
 type Conflict = Problem
 
@@ -540,6 +625,21 @@ type Unauthorized = Problem
 type GetAgendaParams struct {
 	// Date Calendar date; defaults to today in the instance calendar zone.
 	Date *Date `form:"date,omitempty" json:"date,omitempty"`
+}
+
+// SearchNodesParams defines parameters for SearchNodes.
+type SearchNodesParams struct {
+	// Q Text to look for in titles and aliases.
+	Q   *string `form:"q,omitempty" json:"q,omitempty"`
+	Tag *string `form:"tag,omitempty" json:"tag,omitempty"`
+}
+
+// CreateNodeParams defines parameters for CreateNode.
+type CreateNodeParams struct {
+	// IdempotencyKey Retrying with the same key and body returns the original response
+	// instead of creating the resource again (held in memory for 24 h,
+	// per token and endpoint).
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // CreateProjectParams defines parameters for CreateProject.
@@ -586,6 +686,9 @@ type ListTodayTasksParams struct {
 
 // TransitionTaskParamsAction defines parameters for TransitionTask.
 type TransitionTaskParamsAction string
+
+// CreateNodeJSONRequestBody defines body for CreateNode for application/json ContentType.
+type CreateNodeJSONRequestBody = CreateNode
 
 // CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
 type CreateProjectJSONRequestBody = CreateProject

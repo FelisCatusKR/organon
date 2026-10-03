@@ -195,3 +195,39 @@ func (c *Client) CreateProject(ctx context.Context, req model.CreateProject) (mo
 	raw, err := c.Do(ctx, http.MethodPost, "/projects", nil, req, &project)
 	return project, raw, err
 }
+
+// CreateNode creates a knowledge node.
+func (c *Client) CreateNode(ctx context.Context, req model.CreateNode) (model.Node, []byte, error) {
+	var node model.Node
+	raw, err := c.Do(ctx, http.MethodPost, "/nodes", nil, req, &node)
+	return node, raw, err
+}
+
+// GetNode reads one node.
+func (c *Client) GetNode(ctx context.Context, id string) (model.Node, []byte, error) {
+	var node model.Node
+	raw, err := c.Do(ctx, http.MethodGet, "/nodes/"+url.PathEscape(id), nil, nil, &node)
+	return node, raw, err
+}
+
+// SearchNodes lists nodes whose title or alias contains q and that carry
+// tag; both may be empty.
+func (c *Client) SearchNodes(ctx context.Context, q, tag string) (model.NodeList, []byte, error) {
+	query := url.Values{}
+	if q != "" {
+		query.Set("q", q)
+	}
+	if tag != "" {
+		query.Set("tag", tag)
+	}
+	var list model.NodeList
+	raw, err := c.Do(ctx, http.MethodGet, "/nodes", query, nil, &list)
+	return list, raw, err
+}
+
+// NodeRefs lists the backlinks ("backlinks") or forward links ("links") of a node.
+func (c *Client) NodeRefs(ctx context.Context, id, which string) (model.NodeRefList, []byte, error) {
+	var list model.NodeRefList
+	raw, err := c.Do(ctx, http.MethodGet, "/nodes/"+url.PathEscape(id)+"/"+url.PathEscape(which), nil, nil, &list)
+	return list, raw, err
+}

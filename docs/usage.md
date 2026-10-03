@@ -40,6 +40,13 @@ organon task edit 3f2a --priority none --scheduled none
 organon project add "Home renovation"
 organon task add "Order tiles" --project 7777
 organon project list
+
+organon node add "Emacs 설정 노트" --tag emacs --alias init.el --body "Keys live in the init file."
+organon node add "Key bindings" --body "See [[id:a1b2c3d4-…][Emacs 설정 노트]]."   # a link (full ID)
+organon node search init                # title or alias, ignoring case; --tag T filters
+organon node show a1b2                  # archived notes need their full ID
+organon node backlinks a1b2             # notes and tasks that link here
+organon node links b7e1                 # what this note links to
 ```
 
 Dates go to the API exactly as you type them, and Org computes everything else. Every command takes `--json`
@@ -103,10 +110,18 @@ curl -s "${auth[@]}" $API/tasks/completed  # completed today, repeating tasks in
 | `GET /api/v1/tasks?state=NEXT&project=…&tag=…` | List tasks, with or without dates | |
 | `GET /api/v1/projects` | List projects | |
 | `POST /api/v1/projects` | Create a project | |
+| `POST /api/v1/nodes` | Create a note | `title`, optional `body`, `tags`, `aliases`; needs `nodes:write` |
+| `GET /api/v1/nodes?q=…&tag=…` | Find notes | `q` matches titles and aliases, ignoring case; archived notes and tasks are left out |
+| `GET /api/v1/nodes/{id}` | Read a note | |
+| `GET /api/v1/nodes/{id}/backlinks` | Notes and tasks that link to it | Items are `{"id","title","kind"}`, `kind` is `node` or `task` |
+| `GET /api/v1/nodes/{id}/links` | Notes and tasks it links to | Same items |
+
+**Notes and links.** Notes are org-roam nodes. A body links to another note or task with an Org ID link,
+`[[id:<id>][label]]`; links and backlinks come from those.
 
 Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents with a stable `code`.
 
-**Retrying creates.** Send an `Idempotency-Key` with `POST /tasks` and `POST /projects`. With the key, a create
+**Retrying creates.** Send an `Idempotency-Key` with `POST /tasks`, `POST /projects` and `POST /nodes`. With the key, a create
 that failed with `503` can safely be retried for 24 hours: the retry returns what the first request created,
 if it did, instead of creating it twice.
 

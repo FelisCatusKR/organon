@@ -17,7 +17,7 @@ import (
 )
 
 // Commands lists the top-level commands this package handles.
-var Commands = map[string]bool{"today": true, "overdue": true, "waiting": true, "completed": true, "task": true, "project": true}
+var Commands = map[string]bool{"today": true, "overdue": true, "waiting": true, "completed": true, "task": true, "project": true, "node": true}
 
 // Usage is printed by `organon help`.
 const Usage = `client commands (configure with ORGANON_URL / ORGANON_TOKEN or ~/.config/organon/client.json):
@@ -35,6 +35,11 @@ const Usage = `client commands (configure with ORGANON_URL / ORGANON_TOKEN or ~/
   task start|wait|done|skip|cancel|todo|next ID
   project add TITLE [--body TEXT]
   project list
+  node add TITLE [--body TEXT] [--tag T]... [--alias A]...
+                 (link to another node or task with [[id:ID][label]] in the body)
+  node search [TEXT] [--tag T]
+  node show ID
+  node backlinks|links ID
 every command accepts --json (print the API's JSON unchanged); IDs may be
 shortened to a unique prefix of at least 4 characters`
 
@@ -136,6 +141,11 @@ func (r *runner) run(args []string) error {
 			return errors.New(Usage)
 		}
 		return r.project(ctx, args[1], args[2:])
+	case "node":
+		if len(args) < 2 {
+			return errors.New(Usage)
+		}
+		return r.node(ctx, args[1], args[2:])
 	}
 	return errors.New(Usage)
 }
@@ -353,6 +363,12 @@ func (r *runner) mutationError(err error, id string) error {
 	if id != "" {
 		check = "organon task show " + shortID(id)
 	}
+	return outcomeUnknown(err, check)
+}
+
+// outcomeUnknown adds what to check before retrying a change whose outcome is
+// unknown.
+func outcomeUnknown(err error, check string) error {
 	return fmt.Errorf("%v\nthe change may or may not have been applied; check with `%s` before trying again", err, check)
 }
 
@@ -542,4 +558,108 @@ func (r *runner) project(ctx context.Context, sub string, args []string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown project command %q\n%s", sub, Usage)
+}
+
+func (r *runner) node(ctx context.Context, sub string, args []string) error {
+	switch sub {
+	case "add":
+		return r.nodeAdd(ctx, args)
+	case "search":
+		fs := r.newFlags("node search")
+		var tag string
+		fs.StringVar(&tag, "tag", "", "only nodes with this tag")
+		pos, err := parse(fs, args)
+		if err != nil {
+			return err
+		}
+		if len(pos) > 1 {
+			return errors.New(`usage: organon node search ["TEXT"] [--tag T]`)
+		}
+		if err := r.connect(); err != nil {
+			return err
+		}
+		q := ""
+		if len(pos) == 1 {
+			q = pos[0]
+		}
+		list, raw, err := r.c.SearchNodes(ctx, q, tag)
+		if err != nil {
+			return err
+		}
+		r.emit(raw, func() { printNodes(r.out, list.Items) })
+		return nil
+	case "show":
+		arg, err := r.oneID("node show", args)
+		if err != nil {
+			return err
+		}
+		id, err := resolveNode(ctx, r.c, arg)
+		if err != nil {
+			return err
+		}
+		node, raw, err := r.c.GetNode(ctx, id)
+		if err != nil {
+			return err
+		}
+		r.emit(raw, func() { printNode(r.out, node) })
+		return nil
+	case "backlinks", "links":
+		arg, err := r.oneID("node "+sub, args)
+		if err != nil {
+			return err
+		}
+		id, err := resolveNode(ctx, r.c, arg)
+		if err != nil {
+			return err
+		}
+		list, raw, err := r.c.NodeRefs(ctx, id, sub)
+		if err != nil {
+			return err
+		}
+		r.emit(raw, func() { printRefs(r.out, list.Items) })
+		return nil
+	}
+	return fmt.Errorf("unknown node command %q\n%s", sub, Usage)
+}
+
+func (r *runner) nodeAdd(ctx context.Context, args []string) error {
+	fs := r.newFlags("node add")
+	var (
+		body          string
+		tags, aliases stringList
+	)
+	fs.StringVar(&body, "body", "", "text of the note")
+	fs.Var(&tags, "tag", "tag (repeatable)")
+	fs.Var(&aliases, "alias", "another name the note is found by (repeatable)")
+	pos, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return errors.New(`usage: organon node add "TITLE" [options]`)
+	}
+	req := model.CreateNode{Title: pos[0]}
+	if body != "" {
+		req.Body = &body
+	}
+	if len(tags) > 0 {
+		t := []string(tags)
+		req.Tags = &t
+	}
+	if len(aliases) > 0 {
+		a := []string(aliases)
+		req.Aliases = &a
+	}
+	if err := r.connect(); err != nil {
+		return err
+	}
+	node, raw, err := r.c.CreateNode(ctx, req)
+	if err != nil {
+		if client.OutcomeUnknown(err) {
+			return outcomeUnknown(err, "organon node search")
+		}
+		return err
+	}
+	r.emit(raw, func() { printNode(r.out, node) })
+	return nil
 }

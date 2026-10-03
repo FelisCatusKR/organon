@@ -6,6 +6,7 @@
 //	# name   scopes             sha256(token), hex
 //	hermes   read               5e8848...
 //	phone    read,tasks:write   0b14d5...
+//	notes    read,nodes:write   9f86d0...
 //
 // Generate an entry with `organon token new --name NAME --scopes SCOPES`.
 package auth
@@ -26,10 +27,11 @@ import (
 // Scopes understood by the API.
 const (
 	ScopeRead       = "read"
-	ScopeTasksWrite = "tasks:write"
+	ScopeTasksWrite = "tasks:write" // create, edit and transition tasks; create projects
+	ScopeNodesWrite = "nodes:write" // create knowledge nodes
 )
 
-var knownScopes = map[string]bool{ScopeRead: true, ScopeTasksWrite: true}
+var knownScopes = map[string]bool{ScopeRead: true, ScopeTasksWrite: true, ScopeNodesWrite: true}
 
 // Token is one configured client.
 type Token struct {
@@ -132,7 +134,7 @@ func NewToken() (string, error) {
 func ValidScopes(list string) error {
 	for _, s := range strings.Split(list, ",") {
 		if !knownScopes[s] {
-			return fmt.Errorf("unknown scope %q (known: read, tasks:write)", s)
+			return fmt.Errorf("unknown scope %q (known: read, tasks:write, nodes:write)", s)
 		}
 	}
 	return nil

@@ -103,6 +103,18 @@
       ;; Computed per request from the data directory (organon-agenda-files).
       org-agenda-files nil)
 
+;;;; org-roam (knowledge nodes)
+
+;; Loading org-roam installs only Lisp advice (on org-id); the database and
+;; directory are set per instance by organon-node.el.  We don't enable
+;; `org-roam-db-autosync-mode': organon-node.el indexes saved files itself
+;; (its commentary says why).
+(require 'org-roam)
+
+(setq org-roam-list-files-commands nil   ; list files in Lisp, no find/rg subprocess
+      ;; Decrypting a .org.gpg/.org.age file would prompt for a passphrase.
+      org-roam-file-exclude-regexp '("\\.\\(?:gpg\\|age\\)\\'"))
+
 ;;;; Engine
 
 ;; organon.el advises the prompt primitives (read-string, yes-or-no-p, ...).
@@ -115,5 +127,6 @@
 (let ((native-comp-enable-subr-trampolines t))
   (require 'organon))
 (require 'organon-task)
+(require 'organon-node)
 
 ;;; init.el ends here

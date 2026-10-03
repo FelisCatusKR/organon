@@ -2,16 +2,18 @@
 
 **Headless Org-mode as your personal API.**
 
-Organon runs Emacs and Org-mode as a headless engine and puts a small, stable HTTP API in front of it. Your
-tasks stay in plain `.org` files that you own, and any database is a cache that can be rebuilt from them.
+Organon runs Emacs, Org-mode and org-roam as a headless engine and puts a small, stable HTTP API in front of
+it. Your tasks and notes stay in plain `.org` files that you own, and any database is a cache that can be
+rebuilt from them.
 
 Org already handles TODO states, repeating tasks, deadlines with warnings and agendas. Organon does not
 reimplement any of it: it exposes Org safely, so that scripts, apps and assistants can use your tasks without
 touching the files.
 
 > **Status:** early development. Tasks work today: create, edit, list and complete them, including repeating
-> tasks and projects, view today / overdue / waiting / completed, and use the command-line client. Notes and
-> backlinks (org-roam) come next. Expect breaking changes before 1.0.
+> tasks and projects, view today / overdue / waiting / completed, and use the command-line client. Notes work
+> too (org-roam): create, read and search them, and follow links and backlinks. Journal and capture come next.
+> Expect breaking changes before 1.0.
 
 ## Quick start
 
@@ -21,7 +23,7 @@ You need Docker with the Compose plugin (or rootless Podman, see [docs/deploymen
 git clone https://github.com/FelisCatusKR/organon && cd organon
 mkdir -p data
 docker compose run --rm engine organon init --calendar-tz Asia/Seoul   # the zone your files are written in
-docker compose run --rm --no-deps engine organon token new --name me --scopes read,tasks:write
+docker compose run --rm --no-deps engine organon token new --name me --scopes read,tasks:write,nodes:write
 # Keep the printed token, and save the printed "tokens file line" as ./tokens
 docker compose up -d
 ```

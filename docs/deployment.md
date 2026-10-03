@@ -28,10 +28,10 @@ mkdir -p data
 #    it decides what "today" is and is stored with your data. It is required.
 docker compose run --rm engine organon init --calendar-tz Asia/Seoul
 
-# 2. Create an API token. Scopes: read, tasks:write.
-docker compose run --rm --no-deps engine organon token new --name me --scopes read,tasks:write
+# 2. Create an API token. Scopes: read, tasks:write (tasks and projects), nodes:write (notes).
+docker compose run --rm --no-deps engine organon token new --name me --scopes read,tasks:write,nodes:write
 #    Keep the printed token. Put the printed "tokens file line" into ./tokens:
-echo 'me read,tasks:write <sha256…>' > tokens
+echo 'me read,tasks:write,nodes:write <sha256…>' > tokens
 
 # 3. Start. The API waits until the engine is healthy.
 docker compose up -d
@@ -129,7 +129,7 @@ data/
 ├── org/
 │   ├── tasks/inbox.org new tasks go here
 │   ├── projects/       one file per project; tasks under a level-1 heading belong to it
-│   ├── knowledge/      notes (not used yet)
+│   ├── knowledge/      notes: one org-roam file per note (YYYYMMDDHHMMSS-slug.org)
 │   ├── journal/
 │   └── archive/
 └── attachments/
@@ -140,6 +140,12 @@ through the API. To edit by hand:
 1. Stop the engine first (`docker compose stop engine`).
 2. Edit the files.
 3. Start the engine again.
+
+**The note index is a cache.** Links, backlinks and search come from org-roam's database in the cache volume,
+never from the data directory. The engine brings it up to date with the files when it starts (and before
+answering a note query if a file changed on disk), so a hand edit made while the engine was stopped shows up
+after the start. If the database is missing or unreadable, the engine rebuilds it before reporting healthy:
+about 25 seconds per 1,000 notes on a Raspberry Pi 4, so the first start of a large collection takes a while.
 
 ## Backups
 

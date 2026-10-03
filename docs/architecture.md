@@ -143,15 +143,17 @@ repeater 기준일)는 파일에 기록된다. 그래서 클라이언트가 나�
 
 | 디렉터리 | agenda 대상 | org-roam 인덱싱 | 기본 검색 노출 |
 |---|---|---|---|
-| `tasks/` | ✅ | ✅ (task heading도 node) | ✗ (`todo IS NULL` 필터) |
-| `projects/` | ✅ (재귀) | ✅ | 프로젝트 heading만 |
+| `tasks/` | ✅ | ✅ (task heading도 인덱스에 들어감) | ✗ (task는 node가 아님) |
+| `projects/` | ✅ (재귀) | ✅ | task가 아닌 heading(프로젝트 heading 등) |
 | `knowledge/` | ✗ | ✅ | ✅ |
 | `journal/` | ✗ | ✅ (file node) | ✅ |
 | `archive/` | ✗ | ✅ (ID 해석과 backlink 보존) | ✗ |
 
 - `org-agenda-files`는 **매 호출마다 재귀로 계산**한다. Org는 디렉터리 항목을 재귀 탐색하지 않는다(실측).
 - task heading을 org-roam에서 제외하지 않는다. 제외 함수를 쓰면 task에서 노트로 거는 backlink가
-  사라지기 때문이다(실측). 대신 조회할 때 `nodes.todo IS NULL`로 거른다.
+  사라지기 때문이다(실측). 대신 node를 조회할 때 task를 거른다. task는 6개 workflow 상태 중 하나와 ID가
+  있는 heading이다(`todo IS NULL OR todo NOT IN (6개 상태)`). 파일의 `#+TODO:`로 선언한 다른 키워드
+  (예: `IDEA`)의 heading은 task가 아니므로 node다.
 
 ### 객체 모델
 
@@ -159,7 +161,7 @@ repeater 기준일)는 파일에 기록된다. 그래서 클라이언트가 나�
 |---|---|---|
 | Task | TODO keyword가 있는 heading | heading의 `:ID:` (UUID) |
 | Project | `projects/` 아래 level-1 heading (ID 보유) | heading의 `:ID:` |
-| Node | ID가 있는 file 또는 heading (TODO 없음) | `:ID:` |
+| Node | ID가 있는 file 또는 heading 중 task가 아닌 것. API로 만들면 `knowledge/<YYYYMMDDHHMMSS>-<slug>.org` 파일 하나 | `:ID:` |
 | Journal | `journal/YYYY/YYYY-MM-DD.org` (file-level ID) | 날짜가 API 키이고, 내부적으로 file ID |
 
 ## 6. Emacs ↔ API IPC
@@ -196,15 +198,19 @@ repeater 기준일)는 파일에 기록된다. 그래서 클라이언트가 나�
    등을 쓴다. regex로 파일을 고치지 않는다.
 5. **LOGBOOK flush**: `post-command-hook`에 걸린 `org-add-log-note`를 직접 실행한다. command loop가
    없으면 상태 변경 로그가 **조용히 누락**되기 때문이다(실측).
-6. **저장**: `save-buffer` + `file-precious-flag`(temp 파일에 쓰고 fsync한 뒤 rename)로 저장한다. org-roam을
-   도입하면(MVP-B) after-save-hook의 autosync로 인덱스가 갱신된다(실측 0.03s).
+6. **저장**: `save-buffer` + `file-precious-flag`(temp 파일에 쓰고 fsync한 뒤 rename)로 저장한다. 그러면
+   after-save-hook에서 그 파일을 org-roam 인덱스에 반영한다(`org-roam-db-update-file`, 실측 0.03s).
+   `org-roam-db-autosync-mode`는 켜지 않는다. 이 모드는 primitive(`rename-file`, `delete-file`)에
+   advice를 걸고, 훅 안의 에러가 `save-buffer` 밖으로 나와 성공한 저장을 실패로 보이게 한다.
 7. **저장 실패 처리**(디스크 가득 참 등): buffer를 디스크 상태로 되돌리고 `internal` 에러를 반환한다.
    메모리에만 있는 변경을 남기지 않는다.
 8. **여러 파일에 걸친 변경**(archive, refile): **대상 파일을 먼저 저장하고 원본을 나중에 저장**한다.
    중간에 실패하면 최악의 경우에도 항목이 중복될 뿐 사라지지 않는다.
 9. **undo 비활성화**: 장기 실행 buffer의 메모리 증가를 막는다.
 
-`write-region`처럼 org-roam autosync를 우회하는 쓰기는 금지한다(실측: sync 전까지 인덱스에 없음).
+`write-region`처럼 저장 훅을 우회하는 쓰기는 금지한다(실측: sync 전까지 인덱스에 없음). 다른 프로세스가
+바꾼 파일은 node 조회 직전에 잡아낸다. 마지막 색인 때의 파일 크기·수정 시각과 지금을 비교하고(stat만),
+다르면 `org-roam-db-sync`를 실행한다. sync는 내용 hash가 바뀐 파일만 다시 읽는다.
 
 ### 6.3 Emacs 전역 설정 (보안 관련)
 
@@ -293,16 +299,22 @@ TODO ─▶ NEXT ─▶ DOING ─▶ DONE
 
 ### 8.2 MVP-B: Knowledge
 
-| method | path | scope |
-|---|---|---|
-| POST | `/nodes` | nodes:write |
-| GET | `/nodes/{id}` | read |
-| GET | `/nodes/{id}/backlinks` | read |
-| GET | `/nodes/{id}/links` | read |
-| GET | `/nodes/search?q=` | read |
+| method | path | scope | 설명 |
+|---|---|---|---|
+| POST | `/nodes` | nodes:write | 생성(`title`, `body`, `tags`, `aliases`). `Idempotency-Key` 지원 |
+| GET | `/nodes?q=&tag=` | read | 검색. `archive/`와 task는 제외 |
+| GET | `/nodes/{id}` | read | |
+| GET | `/nodes/{id}/backlinks` | read | 이 node로 `id:` 링크를 거는 node와 task |
+| GET | `/nodes/{id}/links` | read | 이 node가 `id:` 링크로 가리키는 node와 task |
 
-검색은 title, alias, tag 매칭이다. org-roam에는 본문 전문 검색이 없다. 전문 검색은 이후 재생성 가능한
-cache로 추가한다.
+- 검색은 title과 alias의 부분 일치(대소문자 무시)와 tag 필터다. 초안의 `/nodes/search?q=` 대신
+  `GET /tasks?state=`처럼 컬렉션에 필터를 붙인다. org-roam에는 본문 전문 검색이 없다. 전문 검색은 이후
+  재생성 가능한 cache로 추가한다.
+- 링크는 body에 쓴 Org ID 링크(`[[id:<uuid>][label]]`)다. backlinks와 links의 각 항목은
+  `{id, title, kind}`이고, `kind`(`node`/`task`)로 어느 endpoint에서 읽을지 알려 준다.
+- `nodes:write`는 `tasks:write`와 별개다. 노트만 쓰는 클라이언트(AI 에이전트 등)가 task를 바꿀 수 없게
+  하기 위해서다.
+- node 수정·삭제는 아직 없다.
 
 ### 8.3 이후 단계
 
@@ -465,7 +477,8 @@ e2e로 계속 검증한다**(§16).
 | 프롬프트 유발 상황 | 즉시 `prompt_blocked` 에러. hang 없음 |
 | 외부에서 파일 변경 | buffer가 깨끗하면 자동 revert, 아니면 409 |
 | 저장 실패 | buffer를 디스크 상태로 되돌리고 500. 메모리에만 있는 변경 없음 |
-| org-roam DB 손상/삭제 | `organon-cache`를 지우고 재기동하면 기동 시 sync로 재구축(1,000 노트 기준 약 25초, health start period 안) |
+| org-roam DB 손상/삭제 | 기동할 때 sync로 재구축한다(1,000 노트 기준 약 25초, health start period 안). 열거나 읽을 수 없는 DB는 지우고 한 번 더 재구축한다. 그래도 실패하면 task는 계속 동작하고 node 조회만 `internal` 에러 |
+| 엔진 실행 중 외부 파일 변경 (node) | 다음 node 조회 직전에 바뀐 파일만 재색인. 재기동 불필요 |
 | API 재시작 | Idempotency 캐시만 사라지고, 상태 전이는 `expected_state`로 보호됨 |
 | 컨테이너/volume 전부 삭제 | `<data>`만으로 재기동 (Acceptance 8) |
 | **비상 수동 편집** | `organon-engine`를 정지 → 파일 편집 → 기동. 기동할 때 파일을 새로 읽고 sync함 |

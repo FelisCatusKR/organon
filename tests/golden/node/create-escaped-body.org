@@ -1,0 +1,10 @@
+:PROPERTIES:
+:ID:       00000000-0000-4000-8000-000000000001
+:END:
+#+title: Escaped
+
+First line
+,* TODO injected
+,#+title: other
+,:PROPERTIES:
+See [2026-10-02 Fri].

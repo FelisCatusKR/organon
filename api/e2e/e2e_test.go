@@ -3,20 +3,16 @@
 package e2e
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"io/fs"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
 
-// Tests run in this order (go test keeps source order) and share one stack.
-// Fault tests come after the functional ones; recreation and the stray-file
-// check come last.
+// Tests run in this order (go test keeps source order, files sorted by name)
+// and share one stack. Fault tests come after the functional ones; recreation
+// and the stray-file check are in z_final_test.go, so they run last.
 
 // ---- 8.1 smoke ---------------------------------------------------------------
 
@@ -250,72 +246,5 @@ func TestEngineHasNoNetwork(t *testing.T) {
 func TestDataOwnedByContainerUser(t *testing.T) {
 	if out := strings.TrimSpace(ctl(t, "owner-violations")); out != "" {
 		t.Fatalf("files not owned by uid %s:\n%s", os.Getenv("ORGANON_E2E_UID"), out)
-	}
-}
-
-func manifest(t *testing.T) map[string]string {
-	t.Helper()
-	m := map[string]string{}
-	err := filepath.WalkDir(dataDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		sum := sha256.Sum256(b)
-		rel, _ := filepath.Rel(dataDir, path)
-		m[rel] = hex.EncodeToString(sum[:])
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return m
-}
-
-// S8 / deployment: Recreate everything
-func TestZRecreateEverything(t *testing.T) {
-	ids := []string{}
-	for _, it := range items(api(t, "GET", "/api/v1/tasks/today?date=2026-10-02", nil)) {
-		ids = append(ids, it["id"].(string))
-	}
-	if len(ids) == 0 {
-		t.Fatal("expected tasks from earlier tests")
-	}
-	before := map[string]string{}
-	for _, id := range ids {
-		before[id] = string(api(t, "GET", "/api/v1/tasks/"+id, nil).Raw)
-	}
-	files := manifest(t)
-
-	ctl(t, "recreate") // containers and named volumes removed, then started again
-
-	if after := manifest(t); !reflect.DeepEqual(files, after) {
-		t.Fatalf("data directory changed:\nbefore %v\nafter  %v", files, after)
-	}
-	for _, id := range ids {
-		if got := string(api(t, "GET", "/api/v1/tasks/"+id, nil).Raw); got != before[id] {
-			t.Fatalf("task %s changed:\n%s\n%s", id, before[id], got)
-		}
-	}
-}
-
-// data-integrity: Directory after a test run
-func TestZZNoStrayFiles(t *testing.T) {
-	err := filepath.WalkDir(dataDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		rel, _ := filepath.Rel(dataDir, path)
-		if strings.HasSuffix(rel, ".org") || rel == "organon.json" || strings.HasPrefix(rel, "attachments/") {
-			return nil
-		}
-		t.Errorf("stray file in data directory: %s", rel)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }

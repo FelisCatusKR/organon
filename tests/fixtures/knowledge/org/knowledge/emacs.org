@@ -1,0 +1,8 @@
+:PROPERTIES:
+:ID:       aaaaaaaa-0000-4000-8000-000000000001
+:ROAM_ALIASES: init.el "닷 이맥스"
+:END:
+#+title: Emacs 설정 노트
+#+filetags: :emacs:tools:
+
+Notes about my Emacs configuration.

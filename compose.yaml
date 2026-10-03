@@ -8,7 +8,7 @@
 #
 # Quick start (see docs/deployment.md for details):
 #   mkdir -p data && docker compose run --rm engine organon init --calendar-tz Asia/Seoul
-#   docker compose run --rm --no-deps engine organon token new --name me --scopes read,tasks:write
+#   docker compose run --rm --no-deps engine organon token new --name me --scopes read,tasks:write,nodes:write
 #   # put the printed "tokens file line" into ./tokens (create the file before `up`)
 #   docker compose up -d
 #
@@ -79,5 +79,5 @@ secrets:
     file: ${ORGANON_TOKENS:-./tokens}
 
 volumes:
-  cache: {}   # rebuildable: org-id index (and the org-roam DB from MVP-B)
+  cache: {}   # rebuildable: org-id index and org-roam database
   run: {}     # the engine socket
