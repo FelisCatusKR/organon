@@ -20,7 +20,8 @@
 ;;   <- {"id":"r-1","ok":true,"result":...}
 ;;   <- {"id":"r-1","ok":false,"error":{"code":"not_found","message":"...","data":...}}
 ;;
-;; Error codes: invalid, not_found, conflict, unavailable, prompt_blocked, internal.
+;; Error codes: invalid, not_found, conflict, unavailable, index_rebuilding,
+;; prompt_blocked, internal.
 
 ;;; Code:
 
@@ -543,15 +544,20 @@ This is the only way methods modify existing entries."
 ;;;; Built-in methods
 
 (organon-defmethod "ping" (_params)
-  "Health check.  Fails with \"unavailable\" while the instance is misconfigured."
-  '((status . "ok")))
+  "Health check.  Fails with \"unavailable\" while the instance is misconfigured.
+Also says whether the note index is ready (organon-node.el)."
+  `((status . "ok")
+    ,@(and (fboundp 'organon-index-status)
+           `((index . ,(alist-get 'state (organon-index-status)))))))
 
 (organon-defmethod "meta" (_params)
   "Instance metadata."
   `((calendar_tz . ,organon-calendar-tz)
     (today . ,(organon-today))
     (doing_limit . ,organon-doing-limit)
-    (engine_version . ,organon-version)))
+    (engine_version . ,organon-version)
+    ,@(and (fboundp 'organon-index-status)
+           `((index . ,(organon-index-status))))))
 
 ;;;; Startup
 

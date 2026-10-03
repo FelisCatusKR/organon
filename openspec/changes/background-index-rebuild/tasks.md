@@ -2,9 +2,9 @@
 
 ## 1. Engine
 
-- [ ] 1.1 Add the batch entry point `organon-index-build` and the progress lines (D1, D2), and verify an ERT test that runs it on the knowledge fixture and gets a database equal to an in-daemon sync
-- [ ] 1.2 Run the rebuild as a child process from `organon-index-startup`, with the filter, the sentinel and the swap (D1–D3), and verify ERT for knowledge-index: Rebuild after the index is deleted, Corrupt index, Corrupt index without any file, Ready after the rebuild
-- [ ] 1.3 Refuse node methods and skip the save hook while rebuilding, report the state in `ping` and `meta` (D4), and verify ERT for knowledge-index: Node request during a rebuild, Task written during a rebuild, Progress, and a failed child leaving node methods `internal`
+- [x] 1.1 Add the batch entry point `organon-index-build` and the progress lines (D1, D2), and verify an ERT test that runs it on the knowledge fixture and gets a database equal to an in-daemon sync
+- [x] 1.2 Run the rebuild as a child process from `organon-index-startup`, with the filter, the sentinel and the swap (D1–D3), and verify ERT for knowledge-index: Rebuild after the index is deleted, Corrupt index, Corrupt index without any file, Ready after the rebuild
+- [x] 1.3 Refuse node methods and skip the save hook while rebuilding, report the state in `ping` and `meta` (D4), and verify ERT for knowledge-index: Node request during a rebuild, Task written during a rebuild, Progress, and a failed child leaving node methods `internal`
 
 ## 2. API
 
