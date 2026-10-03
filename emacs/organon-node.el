@@ -44,12 +44,28 @@
 (defvar organon--index-stats (make-hash-table :test 'equal)
   "File -> (SIZE . MODIFICATION-TIME) as of when the file was last indexed.")
 
+(defvar organon--index-state 'ready
+  "ready, rebuilding or failed.  Ready by default: tests that never start the
+engine sync in the daemon on the first node query.")
+
+(defvar organon--index-progress nil
+  "(DONE . TOTAL) files of the running rebuild, or nil.")
+
+(defvar organon--index-process nil "The rebuild child process, or nil.")
+
 (defun organon--index-configure ()
   "Point org-roam at the current instance (see `organon-configure-hook')."
-  ;; Tests configure many instances in one process: drop the old connection.
+  ;; Tests configure many instances in one process: drop the old connection
+  ;; and any rebuild of the old instance.
   (org-roam-db--close-all)
   (clrhash org-roam-db--connection)
   (clrhash organon--index-stats)
+  (when (process-live-p organon--index-process)
+    (set-process-sentinel organon--index-process #'ignore)
+    (delete-process organon--index-process))
+  (setq organon--index-process nil
+        organon--index-progress nil
+        organon--index-state 'ready)
   (setq org-roam-directory organon-org-dir
         org-roam-db-location (expand-file-name organon-index-file-name organon-cache-dir)))
 
@@ -62,8 +78,9 @@
 (defun organon--index-after-save ()
   "Index the file the current buffer just saved.
 A failure is logged rather than raised: the file itself is saved.  The file
-is then not recorded as indexed, so the next node query syncs it."
-  (when (and organon-org-dir buffer-file-name)
+is then not recorded as indexed, so the next node query syncs it.  During a
+background rebuild nothing is indexed here: the swap syncs these files."
+  (when (and organon-org-dir buffer-file-name (eq organon--index-state 'ready))
     (let ((file (expand-file-name buffer-file-name)))
       (when (org-roam-file-p file)
         (condition-case err
@@ -105,6 +122,40 @@ disk, so a stale buffer would be indexed with the new hash and never again."
       (pcase-dolist (`(,file . ,stat) stats)
         (when stat (puthash file stat organon--index-stats))))))
 
+;;;; Rebuilding in the background
+;;
+;; A full rebuild takes about 25 s per 1,000 notes on a Pi 4 and would block
+;; every request, so it runs in a child batch Emacs that writes a new database
+;; next to the old one; the daemon swaps it in when the child exits.  Until
+;; then node methods answer "index_rebuilding" and tasks work as usual.
+
+(defvar organon-init-file nil)          ; set by init.el
+
+(defconst organon--progress-regexp "\\`organon-index-progress \\([0-9]+\\) \\([0-9]+\\)\\'"
+  "The only line the daemon accepts from the child (besides logging it).")
+
+(defun organon-index-status ()
+  "The index state as reported by ping and meta."
+  `((state . ,(symbol-name organon--index-state))
+    (files_done . ,(if organon--index-progress (car organon--index-progress) :null))
+    (files_total . ,(if organon--index-progress (cdr organon--index-progress) :null))))
+
+(defun organon--index-require-ready ()
+  "Fail the current node request unless the index can answer it."
+  (pcase organon--index-state
+    ('rebuilding (organon-signal "index_rebuilding" "the note index is being rebuilt; try again shortly"))
+    ('failed (organon-signal "internal" "the note index could not be rebuilt; restart the engine to retry"))))
+
+(defconst organon--index-rebuild-prefix "org-roam.db.rebuild-"
+  "Prefix of the files rebuilds write in the cache directory.  Each rebuild
+gets a new name, so a stray child of an earlier engine never shares one.")
+
+(defun organon--index-sweep-rebuild-files ()
+  "Delete files left by rebuilds that did not finish (and their journals)."
+  (dolist (file (directory-files organon-cache-dir t
+                                 (concat "\\`" (regexp-quote organon--index-rebuild-prefix))))
+    (delete-file file)))
+
 (defun organon--index-reset ()
   "Delete the database, so that the next sync rebuilds it from the files."
   (org-roam-db--close-all)
@@ -112,29 +163,144 @@ disk, so a stale buffer would be indexed with the new hash and never again."
   (when (file-exists-p org-roam-db-location)
     (delete-file org-roam-db-location)))
 
+(defun organon--index-filter (proc chunk)
+  "Read progress lines from the rebuild child; log anything else."
+  (let ((pending (concat (or (process-get proc :organon-pending) "") chunk)))
+    (while (string-match "\n" pending)
+      (let ((line (substring pending 0 (match-beginning 0))))
+        (setq pending (substring pending (match-end 0)))
+        (if (string-match organon--progress-regexp line)
+            (setq organon--index-progress (cons (string-to-number (match-string 1 line))
+                                                (string-to-number (match-string 2 line))))
+          (unless (string-empty-p line)
+            (message "organon: index rebuild: %s" line)))))
+    (process-put proc :organon-pending pending)))
+
+(defun organon--index-sentinel (proc _event)
+  "Swap in the database the child built, or record that it failed."
+  (unless (process-live-p proc)
+    (let ((output (process-get proc :organon-output))
+          (organon--in-request t))
+      (setq organon--index-process nil
+            organon--index-progress nil)
+      (if (and (eq (process-status proc) 'exit) (= (process-exit-status proc) 0)
+               (file-exists-p output))
+          ;; Only the swap decides success.  The catch-up sync can fail
+          ;; without harm: every node query runs it again.
+          (if (condition-case err
+                  (progn
+                    (org-roam-db--close-all)
+                    (rename-file output org-roam-db-location t)
+                    (clrhash organon--index-stats)
+                    (setq organon--index-state 'ready))
+                (error
+                 (setq organon--index-state 'failed)
+                 (message "organon: could not use the rebuilt index: %s" (error-message-string err))
+                 nil))
+              (condition-case err
+                  (progn
+                    ;; Files the engine wrote during the rebuild were not indexed.
+                    (organon-index-ensure-current)
+                    (message "organon: index rebuilt, %d entries (%.1fs)"
+                             (caar (org-roam-db-query [:select (funcall count *) :from nodes]))
+                             (- (float-time) (process-get proc :organon-start))))
+                (error
+                 (message "organon: index rebuilt; catching up failed (retried on the next node query): %s"
+                          (error-message-string err))))
+            (when (file-exists-p output) (delete-file output)))
+        (setq organon--index-state 'failed)
+        (when (file-exists-p output) (delete-file output))
+        (message "organon: index rebuild failed (%s %s)"
+                 (process-status proc) (process-exit-status proc))))))
+
+(defun organon-index-rebuild-in-background ()
+  "Start a child batch Emacs that builds a new database from the files.
+If it cannot even start, the index is `failed' and the engine still serves
+tasks."
+  (condition-case err
+      (organon--index-start-rebuild)
+    (error
+     (setq organon--index-state 'failed
+           organon--index-process nil)
+     (message "organon: could not start the index rebuild: %s" (error-message-string err)))))
+
+(defun organon--index-start-rebuild ()
+  (organon--index-reset)
+  (organon--index-sweep-rebuild-files)
+  (let ((output (make-temp-file (expand-file-name organon--index-rebuild-prefix organon-cache-dir))))
+    ;; A unique name, but no file: org-roam creates its tables only in a
+    ;; database file that does not exist yet.
+    (delete-file output)
+    (setq organon--index-state 'rebuilding
+          organon--index-progress nil
+          organon--index-process
+          (make-process
+           :name "organon-index"
+           :command (list (expand-file-name invocation-name invocation-directory)
+                          "-q" "--batch" "-l" organon-init-file
+                          "-f" "organon-index-build"
+                          organon-data-dir organon-cache-dir output)
+           :connection-type 'pipe
+           :noquery t
+           :coding 'utf-8
+           :filter #'organon--index-filter
+           :sentinel #'organon--index-sentinel))
+    (process-put organon--index-process :organon-output output)
+    (process-put organon--index-process :organon-start (float-time))
+    (message "organon: rebuilding the index in the background")))
+
+(defun organon-index-build ()
+  "Entry point of the rebuild child: DATA-DIR CACHE-DIR OUTPUT on the command
+line.  Builds the database for DATA-DIR into OUTPUT and exits."
+  (pcase-let ((`(,data-dir ,cache-dir ,output) command-line-args-left))
+    (setq command-line-args-left nil)
+    ;; The daemon owns the org-id cache; this process must not rewrite it.
+    (setq org-id-track-globally nil)
+    ;; The run directory only matters for the socket, which this process
+    ;; never opens; the cache directory keeps everything inside the mounts.
+    (organon-configure data-dir cache-dir cache-dir)
+    (when organon-config-error
+      (message "%s" organon-config-error)
+      (kill-emacs 1))
+    (setq org-roam-db-location output)
+    (let ((total (length (org-roam-list-files)))
+          (done 0)
+          (organon--in-request t))
+      (advice-add 'org-roam-db-update-file :before
+                  (lambda (&rest _)
+                    ;; stderr: unbuffered, unlike stdout into a pipe, and
+                    ;; merged into the same pipe by `make-process'.
+                    (princ (format "organon-index-progress %d %d\n" (cl-incf done) (max done total))
+                           #'external-debugging-output)))
+      (condition-case err
+          (let ((inhibit-message t))
+            (org-roam-db-sync)
+            (org-roam-db--close-all)
+            (kill-emacs 0))
+        (error
+         (message "%s" (error-message-string err))
+         (kill-emacs 1))))))
+
 (defun organon-index-startup ()
-  "Sync the index before the engine reports healthy (`organon-startup-hook').
-An index that cannot be opened or read is deleted and rebuilt once.  If that
-fails too, tasks keep working and node queries report the error."
+  "Make the index usable without delaying the engine (`organon-startup-hook').
+With a database, sync it incrementally here (fast); without one, or with one
+that cannot be read, rebuild it in a child process."
   (let ((start (float-time))
         ;; Not a request, but a prompt here would hang the startup.
         (organon--in-request t))
-    (cl-flet ((check ()
-                ;; The count also opens the database when no file changed
-                ;; (an empty org/), so a broken one is found here too.
-                (organon-index-ensure-current)
-                (caar (org-roam-db-query [:select (funcall count *) :from nodes]))))
+    (if (not (file-exists-p org-roam-db-location))
+        (organon-index-rebuild-in-background)
       (condition-case err
-          (let ((entries (condition-case err
-                             (check)
-                           (error
-                            (message "organon: index unusable (%s); rebuilding it" (error-message-string err))
-                            (organon--index-reset)
-                            (check)))))
-            (message "organon: index ready, %d entries (%.1fs)" entries (- (float-time) start)))
+          (progn
+            (organon-index-ensure-current)
+            ;; The count also opens the database when no file changed (an
+            ;; empty org/), so a broken one is found here too.
+            (message "organon: index ready, %d entries (%.1fs)"
+                     (caar (org-roam-db-query [:select (funcall count *) :from nodes]))
+                     (- (float-time) start)))
         (error
-         (clrhash organon--index-stats)
-         (message "organon: could not build the index: %s" (error-message-string err)))))))
+         (message "organon: index unusable (%s)" (error-message-string err))
+         (organon-index-rebuild-in-background))))))
 
 (add-hook 'organon-startup-hook #'organon-index-startup)
 
@@ -264,6 +430,7 @@ blank lines, up to the first heading; unescaped."
 
 (defun organon--node (id)
   "The node ID from an up-to-date index; not_found if there is none."
+  (organon--index-require-ready)
   (organon-index-ensure-current)
   (let ((node (org-roam-node-from-id id)))
     (unless node
@@ -296,6 +463,7 @@ bytes, well below the usual 255-byte limit.")
 
 (defun organon--node-create (params)
   "Create a knowledge node: a new file under knowledge/ with a file-level ID."
+  (organon--index-require-ready)        ; before anything is written
   (let* ((title (organon--clean-node-line (organon-param params 'title t) "title"))
          (body (organon--param-body params))
          (tags (organon--param-tags params))
@@ -343,6 +511,7 @@ request values never become SQL."
         (aliases (make-hash-table :test 'equal))
         (tags (make-hash-table :test 'equal))
         result)
+    (organon--index-require-ready)
     (organon-index-ensure-current)
     ;; Rows come back in insertion order, which is file order; push reverses.
     (pcase-dolist (`(,id ,alias) (org-roam-db-query [:select [node-id alias] :from aliases]))

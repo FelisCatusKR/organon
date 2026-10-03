@@ -57,7 +57,8 @@ func TestZRecreateEverything(t *testing.T) {
 		t.Fatal("expected nodes from earlier tests")
 	}
 
-	ctl(t, "recreate") // containers and named volumes removed, then started again
+	ctl(t, "recreate")
+	waitIndexReady(t) // the cache volume is gone: the index is rebuilt in the background // containers and named volumes removed, then started again
 
 	if after := manifest(t); !reflect.DeepEqual(files, after) {
 		t.Fatalf("data directory changed:\nbefore %v\nafter  %v", files, after)

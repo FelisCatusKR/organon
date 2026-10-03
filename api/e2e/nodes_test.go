@@ -11,8 +11,10 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 var (
@@ -52,6 +54,25 @@ func searchIDs(t *testing.T, query string) []string {
 		ids = append(ids, it["id"].(string))
 	}
 	return ids
+}
+
+// waitIndexReady waits until /meta reports the note index ready (a rebuild
+// runs in the background after a restart without a usable index).
+func waitIndexReady(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Minute)
+	for {
+		r := api(t, "GET", "/api/v1/meta", nil)
+		mustStatus(t, r, 200)
+		state := r.Body["index"].(map[string]any)["state"]
+		if state == "ready" {
+			return
+		}
+		if state == "failed" || time.Now().After(deadline) {
+			t.Fatalf("index state %v: %s", state, r.Raw)
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 // indexSnapshot is every answer the index gives: the node list, and the
@@ -150,9 +171,67 @@ func TestNodesS7RebuildFromFiles(t *testing.T) {
 	}
 	for _, verb := range []string{"drop-index", "corrupt-index"} {
 		ctl(t, verb)
+		waitIndexReady(t)
 		if after := indexSnapshot(t); !reflect.DeepEqual(before, after) {
 			t.Fatalf("after %s:\nbefore %v\nafter  %v", verb, before, after)
 		}
+	}
+}
+
+// knowledge-index: Large collection without an index; Node request during a
+// rebuild; Progress; Task written during a rebuild
+// service-health: Index rebuilding
+func TestNodesRebuildInBackground(t *testing.T) {
+	const seeded = 3000 // enough for the rebuild to take seconds even on fast CI machines
+	target := createNode(t, map[string]any{"title": "Linked during the rebuild e2e"})
+	before := searchIDs(t, "")
+	ctl(t, "seed-notes", strconv.Itoa(seeded))
+	ctl(t, "drop-index") // returns once the engine answers again
+
+	// The engine answers at once; the index is still being rebuilt.
+	meta := api(t, "GET", "/api/v1/meta", nil)
+	mustStatus(t, meta, 200)
+	if state := meta.Body["index"].(map[string]any)["state"]; state != "rebuilding" {
+		t.Fatalf("index right after the restart: %s", meta.Raw)
+	}
+	if r := call(t, "", "GET", "/readyz", nil); r.Status != 200 || r.Body["status"] != "warn" {
+		t.Fatalf("readyz during the rebuild: %d %s", r.Status, r.Raw)
+	}
+	for _, r := range []response{
+		api(t, "GET", "/api/v1/nodes", nil),
+		call(t, notesToken, "POST", "/api/v1/nodes", map[string]any{"title": "Too early e2e"}),
+	} {
+		if r.Status != 503 || r.Body["code"] != "index_rebuilding" {
+			t.Fatalf("node request during the rebuild: %d %s", r.Status, r.Raw)
+		}
+	}
+	task := createTask(t, map[string]any{"title": "Written during the rebuild e2e", "body": "See " + link(target, "it")})
+	mustStatus(t, api(t, "GET", "/api/v1/tasks", nil), 200)
+	progress := api(t, "GET", "/api/v1/meta", nil).Body["index"].(map[string]any)
+	if progress["state"] == "rebuilding" && progress["files_done"] != nil &&
+		progress["files_done"].(float64) > progress["files_total"].(float64) {
+		t.Fatalf("progress: %v", progress)
+	}
+
+	waitIndexReady(t)
+	if got := refs(t, target["id"].(string), "backlinks"); !reflect.DeepEqual(got, []string{"task " + task["id"].(string)}) {
+		t.Fatalf("backlinks of a task written during the rebuild: %v", got)
+	}
+	if after := searchIDs(t, ""); len(after) != len(before)+seeded {
+		t.Fatalf("%d nodes after the rebuild, want %d", len(after), len(before)+seeded)
+	}
+	if got := refs(t, "5eed0000-0000-4000-8000-000000000001", "backlinks"); !reflect.DeepEqual(got,
+		[]string{"node 5eed0000-0000-4000-8000-000000000002"}) {
+		t.Fatalf("backlinks between seeded notes: %v", got)
+	}
+	if r := call(t, "", "GET", "/readyz", nil); r.Status != 200 || r.Body["status"] != "pass" {
+		t.Fatalf("readyz after the rebuild: %d %s", r.Status, r.Raw)
+	}
+
+	// Leave the collection as it was for the tests that follow.
+	ctl(t, "unseed-notes")
+	if after := searchIDs(t, ""); !reflect.DeepEqual(after, before) {
+		t.Fatalf("after removing the seeded notes: %d nodes, want %d", len(after), len(before))
 	}
 }
 

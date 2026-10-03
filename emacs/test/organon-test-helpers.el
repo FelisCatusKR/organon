@@ -112,6 +112,16 @@ PARAMS is an alist; the response is an alist with symbols as keys."
       (ert-fail (list "expected an error response" method (alist-get 'result response))))
     (alist-get 'code (alist-get 'error response))))
 
+;;;; Background index rebuild
+
+(defun organon-test-wait-for-index (&optional seconds)
+  "Wait until a background index rebuild has finished (default 120 s)."
+  (let ((deadline (+ (float-time) (or seconds 120))))
+    (while (and (bound-and-true-p organon--index-process) (< (float-time) deadline))
+      (accept-process-output organon--index-process 0.1))
+    (when (bound-and-true-p organon--index-process)
+      (ert-fail "the index rebuild did not finish in time"))))
+
 ;;;; Golden files
 
 (defun organon-test-check-golden (golden relative)

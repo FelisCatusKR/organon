@@ -1,10 +1,6 @@
-# knowledge-index Specification
+# Spec Delta
 
-## Purpose
-Keeps the org-roam index (nodes, links, backlinks) a disposable cache of the `.org` files: it can be deleted
-at any time and is rebuilt from the files, and node queries always reflect the files on disk.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Index is a rebuildable cache
 The node index SHALL be stored only in the cache directory, never in the data directory. When the index is
@@ -36,37 +32,7 @@ the background instead of failing.
 - **WHEN** `org/` holds no `.org` file, the index file is not a database, and the engine is restarted
 - **THEN** once the rebuild has finished a search answers with an empty list
 
-### Requirement: Writes are indexed when saved
-Every file the engine saves SHALL be indexed before the response is sent, so that the next request sees the
-change. If a new node's file is saved but cannot be indexed, creating it SHALL fail with `500`, never `404`.
-
-#### Scenario: Task that links to a note
-- **WHEN** a task is created whose body links to node A
-- **THEN** the next request for A's backlinks contains the task
-
-#### Scenario: New node that cannot be indexed
-- **WHEN** a node is created and org-roam fails to index its saved file
-- **THEN** the response is `500`, and the file stays on disk
-
-#### Scenario: New node is searchable
-- **WHEN** a node is created
-- **THEN** the next search for its title returns it
-
-### Requirement: Changes outside the engine are picked up
-Before answering a node query, the engine SHALL re-read every file under `org/` that was added, changed or
-removed by another process since it last indexed it, whether the engine was running or stopped at the time.
-
-#### Scenario: Note written by another process
-- **WHEN** another process writes a new file under `org/knowledge/` with an `ID`, a title and a link to node A while the engine runs
-- **THEN** the next search returns the new node and A's backlinks contain it, without a restart
-
-#### Scenario: Link removed by another process
-- **WHEN** another process removes the only link from node B to node A
-- **THEN** the next request for A's backlinks no longer contains B
-
-#### Scenario: File deleted while the engine was stopped
-- **WHEN** the engine is stopped, a node's file is deleted, and the engine is started again
-- **THEN** the node is no longer returned and `GET /api/v1/nodes/{id}` answers `404`
+## ADDED Requirements
 
 ### Requirement: Tasks are served during a rebuild
 While the index is rebuilding, the engine SHALL report healthy and SHALL serve every task, project and agenda

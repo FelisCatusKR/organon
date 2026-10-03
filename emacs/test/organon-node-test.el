@@ -83,7 +83,11 @@ modification time that visibly differs from the previous one."
       (organon--index-reset)
       (should-not (file-exists-p org-roam-db-location))
       (organon-index-startup)
+      (should (eq organon--index-state 'rebuilding))
+      (organon-test-wait-for-index)
+      (should (eq organon--index-state 'ready))
       (should (file-exists-p org-roam-db-location))
+      (should-not (directory-files organon-cache-dir nil "\\`org-roam\\.db\\.rebuild-"))
       (should (equal (organon-test-index-snapshot) before)))))
 
 (ert-deftest organon-node/corrupt-index ()
@@ -95,6 +99,7 @@ modification time that visibly differs from the previous one."
         (with-temp-file org-roam-db-location (insert "this is not a database\n")))
       (clrhash organon--index-stats)
       (organon-index-startup)
+      (organon-test-wait-for-index)
       (should (equal (organon-test-index-snapshot) before)))))
 
 ;; A fresh instance: org/ exists but holds no .org file.
@@ -107,7 +112,102 @@ modification time that visibly differs from the previous one."
     (let ((file-precious-flag nil))
       (with-temp-file org-roam-db-location (insert "this is not a database\n")))
     (organon-index-startup)
+    (organon-test-wait-for-index)
     (should (equal (organon-test-result "nodes.search") []))))
+
+(ert-deftest organon-node/node-request-during-a-rebuild ()
+  "knowledge-index: Node request during a rebuild; Progress; Ready after the rebuild.
+Tasks are served meanwhile (Tasks are served during a rebuild)."
+  (organon-test-with-knowledge
+    (organon-test-result "nodes.search")
+    (organon--index-reset)
+    (organon-index-startup)
+    (should (equal (alist-get 'state (alist-get 'index (organon-test-result "meta"))) "rebuilding"))
+    (should (equal (alist-get 'index (organon-test-result "ping")) "rebuilding"))
+    (let ((before (directory-files (organon-test-file "org/knowledge/"))))
+      (dolist (call `(("nodes.search" . nil)
+                      ("node.get" . ((id . ,organon-test-emacs-note)))
+                      ("node.backlinks" . ((id . ,organon-test-emacs-note)))
+                      ("node.create" . ((title . "Too early")))))
+        (should (equal (organon-test-error-code (car call) (cdr call)) "index_rebuilding")))
+      (should (equal (directory-files (organon-test-file "org/knowledge/")) before)))
+    ;; Progress arrives as the child indexes files.  Record every value the
+    ;; filter stores (sampling meta could miss them all on a fast machine),
+    ;; and check meta while one is set.
+    (let (seen)
+      (cl-letf* ((filter (symbol-function 'organon--index-filter))
+                 ((symbol-function 'organon--index-filter)
+                  (lambda (proc chunk)
+                    (funcall filter proc chunk)
+                    (when organon--index-progress
+                      (push organon--index-progress seen)
+                      (let ((index (alist-get 'index (organon-test-result "meta"))))
+                        (should (equal (alist-get 'files_done index) (car organon--index-progress))))))))
+        (set-process-filter organon--index-process #'organon--index-filter)
+        (organon-test-wait-for-index))
+      (should seen)
+      (dolist (progress seen)
+        (should (<= (car progress) (cdr progress)))))
+    (should (organon-test-result "tasks.list"))
+    (let ((index (alist-get 'index (organon-test-result "meta"))))
+      (should (equal (alist-get 'state index) "ready"))
+      (should (null (alist-get 'files_done index))))
+    (should (equal (alist-get 'index (organon-test-result "ping")) "ready"))
+    (should (= (length (organon-test-result "nodes.search")) 4))))
+
+(ert-deftest organon-node/task-written-during-a-rebuild ()
+  "knowledge-index: Task written during a rebuild."
+  (organon-test-with-knowledge
+    (organon--index-reset)
+    (organon-index-startup)
+    (let ((task (organon-test-result "task.create"
+                                     `((title . "Written meanwhile")
+                                       (body . ,(format "[[id:%s][x]]" organon-test-reading-list))))))
+      (organon-test-wait-for-index)
+      (should (equal (organon-test-refs "node.backlinks" organon-test-reading-list)
+                     `(("task" ,(alist-get 'id task))))))))
+
+(ert-deftest organon-node/failed-rebuild ()
+  "knowledge-index: Index state is reported (a failed rebuild leaves node requests internal)."
+  (organon-test-with-knowledge
+    (organon--index-reset)
+    (let ((organon-init-file "/nonexistent/init.el"))
+      (organon-index-startup))
+    (organon-test-wait-for-index)
+    (should (eq organon--index-state 'failed))
+    (should (equal (alist-get 'state (alist-get 'index (organon-test-result "meta"))) "failed"))
+    (should (equal (organon-test-error-code "nodes.search") "internal"))
+    (should (organon-test-result "tasks.list"))
+    (should-not (directory-files organon-cache-dir nil "\\`org-roam\\.db\\.rebuild-"))))
+
+(ert-deftest organon-node/rebuild-that-cannot-start ()
+  "A rebuild that cannot even start leaves the index failed, not the engine down."
+  (organon-test-with-knowledge
+    (organon--index-reset)
+    (cl-letf (((symbol-function 'make-process)
+               (lambda (&rest _) (error "Resource temporarily unavailable"))))
+      (organon-index-startup))
+    (should (eq organon--index-state 'failed))
+    (should (equal (organon-test-error-code "nodes.search") "internal"))
+    (should (organon-test-result "tasks.list"))))
+
+(ert-deftest organon-node/catch-up-failure-keeps-the-rebuilt-index ()
+  "Only the swap decides success: a failed catch-up sync is retried later."
+  (organon-test-with-knowledge
+    (organon--index-reset)
+    (organon-index-startup)
+    (let ((ensure (symbol-function 'organon-index-ensure-current))
+          (failed-once nil))
+      (cl-letf (((symbol-function 'organon-index-ensure-current)
+                 (lambda ()
+                   (if failed-once
+                       (funcall ensure)
+                     (setq failed-once t)
+                     (error "Simulated catch-up failure")))))
+        (organon-test-wait-for-index)
+        (should failed-once)
+        (should (eq organon--index-state 'ready))
+        (should (= (length (organon-test-result "nodes.search")) 4))))))
 
 ;;;; 1.3 Changes outside the engine
 

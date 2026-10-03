@@ -93,6 +93,48 @@ func (e CreateTaskState) Valid() bool {
 	}
 }
 
+// Defines values for HealthStatus.
+const (
+	Fail HealthStatus = "fail"
+	Pass HealthStatus = "pass"
+	Warn HealthStatus = "warn"
+)
+
+// Valid indicates whether the value is a known member of the HealthStatus enum.
+func (e HealthStatus) Valid() bool {
+	switch e {
+	case Fail:
+		return true
+	case Pass:
+		return true
+	case Warn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IndexStatusState.
+const (
+	Failed     IndexStatusState = "failed"
+	Ready      IndexStatusState = "ready"
+	Rebuilding IndexStatusState = "rebuilding"
+)
+
+// Valid indicates whether the value is a known member of the IndexStatusState enum.
+func (e IndexStatusState) Valid() bool {
+	switch e {
+	case Failed:
+		return true
+	case Ready:
+		return true
+	case Rebuilding:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NodeRefKind.
 const (
 	NodeRefKindNode NodeRefKind = "node"
@@ -116,6 +158,7 @@ const (
 	ProblemCodeConflict          ProblemCode = "conflict"
 	ProblemCodeEngineUnavailable ProblemCode = "engine_unavailable"
 	ProblemCodeForbidden         ProblemCode = "forbidden"
+	ProblemCodeIndexRebuilding   ProblemCode = "index_rebuilding"
 	ProblemCodeInternal          ProblemCode = "internal"
 	ProblemCodeInvalid           ProblemCode = "invalid"
 	ProblemCodeNotFound          ProblemCode = "not_found"
@@ -131,6 +174,8 @@ func (e ProblemCode) Valid() bool {
 	case ProblemCodeEngineUnavailable:
 		return true
 	case ProblemCodeForbidden:
+		return true
+	case ProblemCodeIndexRebuilding:
 		return true
 	case ProblemCodeInternal:
 		return true
@@ -392,15 +437,45 @@ type CreateTaskState string
 // Date Examples: 2026-10-25
 type Date = string
 
+// Health defines model for Health.
+type Health struct {
+	// Output Why the status is `warn` or `fail`.
+	Output *string      `json:"output,omitempty"`
+	Status HealthStatus `json:"status"`
+}
+
+// HealthStatus defines model for Health.Status.
+type HealthStatus string
+
 // ID defines model for ID.
 type ID = string
+
+// IndexStatus defines model for IndexStatus.
+type IndexStatus struct {
+	// FilesDone Files indexed so far; set only while rebuilding.
+	FilesDone *int `json:"files_done"`
+
+	// FilesTotal Files to index; set only while rebuilding.
+	FilesTotal *int `json:"files_total"`
+
+	// State `rebuilding`: node endpoints answer `503 index_rebuilding` until it
+	// is done. `failed`: node endpoints answer `500` until the engine is
+	// restarted, which tries again.
+	State IndexStatusState `json:"state"`
+}
+
+// IndexStatusState `rebuilding`: node endpoints answer `503 index_rebuilding` until it
+// is done. `failed`: node endpoints answer `500` until the engine is
+// restarted, which tries again.
+type IndexStatusState string
 
 // Meta defines model for Meta.
 type Meta struct {
 	// CalendarTz Examples: Asia/Seoul
-	CalendarTz    string `json:"calendar_tz"`
-	DoingLimit    int    `json:"doing_limit"`
-	EngineVersion string `json:"engine_version"`
+	CalendarTz    string      `json:"calendar_tz"`
+	DoingLimit    int         `json:"doing_limit"`
+	EngineVersion string      `json:"engine_version"`
+	Index         IndexStatus `json:"index"`
 
 	// Today Examples: 2026-10-25
 	Today   Date   `json:"today"`
@@ -606,8 +681,20 @@ type EngineUnavailable = Problem
 // Forbidden RFC 9457 problem details, with a stable machine-readable `code`.
 type Forbidden = Problem
 
+// HealthFail defines model for HealthFail.
+type HealthFail = Health
+
+// HealthPass defines model for HealthPass.
+type HealthPass = Health
+
+// HealthReady defines model for HealthReady.
+type HealthReady = Health
+
 // Invalid RFC 9457 problem details, with a stable machine-readable `code`.
 type Invalid = Problem
+
+// NodesUnavailable RFC 9457 problem details, with a stable machine-readable `code`.
+type NodesUnavailable = Problem
 
 // NotFound RFC 9457 problem details, with a stable machine-readable `code`.
 type NotFound = Problem

@@ -45,11 +45,12 @@ type Server struct {
 	Version        string
 	Logger         *slog.Logger
 
-	// The last engine ping of /healthz, which needs no token: reusing it for a
+	// The last engine ping of /readyz, which needs no token: reusing it for a
 	// second keeps unauthenticated clients from queueing work on the engine.
-	healthMu  sync.Mutex
-	healthAt  time.Time
-	healthErr error
+	healthMu     sync.Mutex
+	healthAt     time.Time
+	healthStatus int
+	health       model.Health
 }
 
 const maxBodyBytes = 1 << 20
@@ -61,7 +62,9 @@ var healthCacheFor = time.Second
 func (s *Server) Handler() http.Handler {
 	read, write := auth.ScopeRead, auth.ScopeTasksWrite
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", s.healthz)
+	mux.HandleFunc("GET /livez", s.livez)
+	mux.HandleFunc("GET /readyz", s.readyz)
+	mux.HandleFunc("GET /healthz", s.readyz) // kept for existing deployments
 	mux.Handle("GET /api/v1/meta", s.authorize(read, s.meta))
 	mux.Handle("GET /api/v1/agenda", s.authorize(read, s.agenda))
 	mux.Handle("GET /api/v1/tasks/today", s.authorize(read, s.taskList("tasks.today", true)))
@@ -243,6 +246,10 @@ func (s *Server) writeEngineError(w http.ResponseWriter, r *http.Request, err er
 		writeProblem(w, http.StatusNotFound, model.ProblemCodeNotFound, rpcErr.Message, rpcErr.Data)
 	case rpc.CodeConflict:
 		writeProblem(w, http.StatusConflict, model.ProblemCodeConflict, rpcErr.Message, rpcErr.Data)
+	case rpc.CodeIndexRebuilding:
+		// A hint for polling, not an estimate; GET /api/v1/meta has the progress.
+		w.Header().Set("Retry-After", "10")
+		writeProblem(w, http.StatusServiceUnavailable, model.ProblemCodeIndexRebuilding, rpcErr.Message, nil)
 	case rpc.CodeUnavailable:
 		s.logEngineError(r, rpcErr.Code, err)
 		writeProblem(w, http.StatusServiceUnavailable, model.ProblemCodeEngineUnavailable, "the engine is unavailable", nil)
@@ -311,21 +318,51 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) ([]byte, bool) {
 
 // ---- handlers --------------------------------------------------------------------
 
-func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
+// writeHealth writes a probe answer. Probes only look at the status code; the
+// body follows the shape of application/health+json.
+func writeHealth(w http.ResponseWriter, status int, h model.Health) {
+	body, _ := json.Marshal(h)
+	w.Header().Set("Content-Type", "application/health+json")
+	w.WriteHeader(status)
+	w.Write(body)
+}
+
+// livez answers as long as this process does. It never contacts the engine:
+// a liveness probe that did would restart the API whenever the engine is down.
+func (s *Server) livez(w http.ResponseWriter, r *http.Request) {
+	writeHealth(w, http.StatusOK, model.Health{Status: model.Pass})
+}
+
+// readyz (and /healthz) answers 200 while the engine answers: "pass", or
+// "warn" while the note index is not ready, because tasks still work and a
+// failing readiness probe would cut them off too. 503 "fail" otherwise.
+func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	s.healthMu.Lock()
 	if time.Since(s.healthAt) >= healthCacheFor {
-		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-		s.healthErr = s.Engine.Call(ctx, "ping", nil, nil)
-		cancel()
+		s.healthStatus, s.health = s.checkEngine(r)
 		s.healthAt = time.Now()
 	}
-	err := s.healthErr
+	status, h := s.healthStatus, s.health
 	s.healthMu.Unlock()
-	if err != nil {
-		s.writeEngineError(w, r, err)
-		return
+	writeHealth(w, status, h)
+}
+
+func (s *Server) checkEngine(r *http.Request) (int, model.Health) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	var ping struct {
+		Index string `json:"index"`
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	if err := s.Engine.Call(ctx, "ping", nil, &ping); err != nil {
+		s.logEngineError(r, "unavailable", err)
+		reason := "engine unavailable"
+		return http.StatusServiceUnavailable, model.Health{Status: model.Fail, Output: &reason}
+	}
+	if ping.Index != "" && ping.Index != "ready" {
+		reason := "note index " + ping.Index
+		return http.StatusOK, model.Health{Status: model.Warn, Output: &reason}
+	}
+	return http.StatusOK, model.Health{Status: model.Pass}
 }
 
 func (s *Server) meta(w http.ResponseWriter, r *http.Request) {

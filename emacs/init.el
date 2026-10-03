@@ -11,7 +11,10 @@
 
 ;;;; Load path and compilation
 
-(let ((dir (file-name-directory (or load-file-name buffer-file-name))))
+(defvar organon-init-file (or load-file-name buffer-file-name)
+  "This file: the background index rebuild starts a batch Emacs with it.")
+
+(let ((dir (file-name-directory organon-init-file)))
   (add-to-list 'load-path dir)
   (when (boundp 'native-comp-eln-load-path)
     (add-to-list 'native-comp-eln-load-path (expand-file-name "eln/" dir))))

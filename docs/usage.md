@@ -120,6 +120,9 @@ curl -s "${auth[@]}" $API/tasks/completed  # completed today, repeating tasks in
 `[[id:<id>][label]]`; links and backlinks come from those.
 
 Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents with a stable `code`.
+While the note index is being rebuilt (after a first start or a lost cache), note requests answer `503` with
+code `index_rebuilding` and a `Retry-After` header: nothing was created, so just retry later. Task requests are
+not affected, and `GET /api/v1/meta` shows the progress under `index`.
 
 **Retrying creates.** Send an `Idempotency-Key` with `POST /tasks`, `POST /projects` and `POST /nodes`. With the key, a create
 that failed with `503` can safely be retried for 24 hours: the retry returns what the first request created,
