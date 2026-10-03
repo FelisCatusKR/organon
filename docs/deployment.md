@@ -101,6 +101,16 @@ against it. Your own unit files can rely on the same interface:
   Keep `init` a separate, deliberate step. Running it automatically in the start command would turn a wrong
   or empty data mount into a new, empty instance: your data would seem gone, and new writes would land in
   the wrong place.
+- **Probes** (HTTP, on the API, no token):
+  - `GET /livez`: the API process is up. It never contacts the engine, so use it for liveness: an engine
+    outage then does not restart the API.
+  - `GET /readyz`: the engine answers. It returns `200` with status `pass`, or `warn` while the note index
+    is rebuilding (tasks work, notes answer `503`). It returns `503` with status `fail` when the engine does
+    not answer. Use it for readiness and to order startup.
+  - `GET /healthz` answers exactly like `/readyz`; the `organon healthcheck` command uses it.
+  - Probes need only the status code; the body has the shape of `application/health+json`.
+  - For Kubernetes, the engine is probed with the exec command `organon rpc-ping`. Both containers belong in
+    one pod, because they share the socket through a volume.
 - **Changes.** A change to this interface is a breaking change. Its pull request title carries `!` (for
   example `feat(deploy)!: …`) and the `breaking` label, and CI enforces the title marker. To list them, run
   `git log --first-parent --grep '!:' origin/main`.
@@ -110,8 +120,8 @@ against it. Your own unit files can rely on the same interface:
 ## Exposing it
 
 The API binds to `127.0.0.1` by default. To reach it from elsewhere, put a TLS-terminating reverse proxy or a
-tunnel in front, for example Caddy, Cloudflare Tunnel, Tailscale or WireGuard. Every endpoint except
-`/healthz` requires a token.
+tunnel in front, for example Caddy, Cloudflare Tunnel, Tailscale or WireGuard. Every endpoint except the
+probes (`/livez`, `/readyz`, `/healthz`) requires a token.
 
 Failed authentication attempts are rate-limited per client address, or per /64 network for IPv6. Behind a
 proxy, every request appears to come from the proxy. Set `ORGANON_CLIENT_IP_HEADER` to the header that
@@ -144,8 +154,15 @@ through the API. To edit by hand:
 **The note index is a cache.** Links, backlinks and search come from org-roam's database in the cache volume,
 never from the data directory. The engine brings it up to date with the files when it starts (and before
 answering a note query if a file changed on disk), so a hand edit made while the engine was stopped shows up
-after the start. If the database is missing or unreadable, the engine rebuilds it before reporting healthy:
-about 25 seconds per 1,000 notes on a Raspberry Pi 4, so the first start of a large collection takes a while.
+after the start.
+
+If the database is missing or unreadable (first start, deleted cache volume), the engine rebuilds it in the
+background, in a second Emacs process. That takes about 25 seconds per 1,000 notes on a Raspberry Pi 4.
+- The engine reports healthy at once, and tasks work as usual.
+- Note requests answer `503` with code `index_rebuilding` and `Retry-After` until the rebuild is done.
+- `GET /api/v1/meta` shows `index.state` and the progress in files.
+- If the rebuild fails, `index.state` is `failed` and note requests answer `500`; restarting the engine tries
+  again. The engine log says why it failed.
 
 ## Backups
 

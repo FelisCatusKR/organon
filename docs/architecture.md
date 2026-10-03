@@ -395,7 +395,7 @@ TODO ─▶ NEXT ─▶ DOING ─▶ DONE
 | AI 에이전트 prompt injection | 에이전트 토큰은 `read` + `journal:write`(이후 단계)로 제한. task 상태 변경 권한 없음 |
 | Emacs 컨테이너 탈출 경로 | `Network=none`, read-only rootfs, `--cap-drop all`, rootless + `keep-id` |
 
-- 오픈소스 기본값: API는 `127.0.0.1`에 bind하고, 토큰 없이는 어떤 endpoint도 응답하지 않는다(`/healthz` 제외).
+- 오픈소스 기본값: API는 `127.0.0.1`에 bind하고, 토큰 없이는 어떤 endpoint도 응답하지 않는다(probe인 `/livez`, `/readyz`, `/healthz` 제외. 이들은 상태만 알려 준다).
 - TLS는 앞단(reverse proxy나 터널: Caddy, Cloudflare Tunnel, Tailscale 등)에서 종료한다. 프록시 뒤에서는
   `ORGANON_CLIENT_IP_HEADER`로 실제 클라이언트 주소를 받아 실패 rate limit에 쓴다.
 
@@ -477,7 +477,7 @@ e2e로 계속 검증한다**(§16).
 | 프롬프트 유발 상황 | 즉시 `prompt_blocked` 에러. hang 없음 |
 | 외부에서 파일 변경 | buffer가 깨끗하면 자동 revert, 아니면 409 |
 | 저장 실패 | buffer를 디스크 상태로 되돌리고 500. 메모리에만 있는 변경 없음 |
-| org-roam DB 손상/삭제 | 기동할 때 sync로 재구축한다(1,000 노트 기준 약 25초, health start period 안). 열거나 읽을 수 없는 DB는 지우고 한 번 더 재구축한다. 그래도 실패하면 task는 계속 동작하고 node 조회만 `internal` 에러 |
+| org-roam DB 손상/삭제 | DB가 없거나 읽을 수 없으면 기동할 때 자식 batch Emacs가 임시 파일에 새 DB를 만들고, 끝나면 데몬이 rename으로 교체한 뒤 그사이 쓴 파일을 증분 sync한다(1,000 노트 기준 약 25초). 엔진은 바로 healthy이고 task는 계속 동작한다. 그동안 node 요청은 `503 index_rebuilding` + `Retry-After`, 진행률은 `/meta`의 `index`. 재구축이 실패하면 node 요청은 `internal`이고 재기동하면 다시 시도한다 |
 | 엔진 실행 중 외부 파일 변경 (node) | 다음 node 조회 직전에 바뀐 파일만 재색인. 재기동 불필요 |
 | API 재시작 | Idempotency 캐시만 사라지고, 상태 전이는 `expected_state`로 보호됨 |
 | 컨테이너/volume 전부 삭제 | `<data>`만으로 재기동 (Acceptance 8) |

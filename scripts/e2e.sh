@@ -162,6 +162,14 @@ if [[ "${1:-}" == ctl ]]; then
       else
         as_owner find "$work/data" ! -uid "$uid" -print
       fi ;;
+    seed-notes)     # N: write N linked notes under org/knowledge/seed/, as another process would
+      as_owner bash -c '
+        dir=$1/org/knowledge/seed; mkdir -p "$dir"
+        for ((i = 1; i <= $2; i++)); do
+          printf ":PROPERTIES:\n:ID:       5eed0000-0000-4000-8000-%012d\n:END:\n#+title: Seed note %d\n\nAfter [[id:5eed0000-0000-4000-8000-%012d][the previous one]].\n" \
+            "$i" "$i" "$((i - 1))" > "$dir/seed-$i.org"
+        done' _ "$work/data" "$1" ;;
+    unseed-notes)   as_owner rm -rf "$work/data/org/knowledge/seed" ;;
     host-append)    # RELPATH TEXT: append to a data file as another process would
       printf '%s' "$2" | as_owner tee -a "$work/data/$1" >/dev/null ;;
     *) echo "unknown ctl verb: $verb" >&2; exit 2 ;;

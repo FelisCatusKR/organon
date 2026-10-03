@@ -196,6 +196,20 @@ func TestDurableAfterEngineKill(t *testing.T) {
 }
 
 // data-integrity: Paused engine
+// service-health: Engine paused (liveness), Engine unavailable
+func TestProbesWhileTheEngineIsPaused(t *testing.T) {
+	ctl(t, "pause-engine")
+	defer ctl(t, "unpause-engine")
+	time.Sleep(1100 * time.Millisecond) // past the API's one-second readiness cache
+	start := time.Now()
+	if r := call(t, "", "GET", "/livez", nil); r.Status != 200 || time.Since(start) > time.Second {
+		t.Fatalf("livez: %d after %s", r.Status, time.Since(start))
+	}
+	if r := call(t, "", "GET", "/readyz", nil); r.Status != 503 || r.Body["status"] != "fail" {
+		t.Fatalf("readyz: %d %s", r.Status, r.Raw)
+	}
+}
+
 func TestPausedEngineGives503ThenRecovers(t *testing.T) {
 	ctl(t, "pause-engine")
 	start := time.Now()

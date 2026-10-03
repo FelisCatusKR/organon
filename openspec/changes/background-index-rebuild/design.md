@@ -48,11 +48,14 @@ its exit hook never rewrites `org-id-locations`.
 The rebuild needs no network and no files outside the data and cache directories, so it runs under the same
 container constraints. While it runs it costs a second Emacs process (about 60 MB).
 
-### D2. Progress is a fixed line format on the child's stdout
-Before each file it indexes, the child prints `organon-index-progress DONE TOTAL`, from an `:around` advice on
-`org-roam-db-update-file` installed only in the child. The daemon's process filter keeps a partial line buffer and
-accepts only lines that match `^organon-index-progress \([0-9]+\) \([0-9]+\)$`. Everything else is logged and
-ignored; nothing from the child is ever read as Lisp. The child's stderr goes to the engine log.
+### D2. Progress is a fixed line format on the child's stderr
+Before each file it indexes, the child prints `organon-index-progress DONE TOTAL`, from a `:before` advice on
+`org-roam-db-update-file` installed only in the child. It writes to stderr: stdout into a pipe is block-buffered,
+so the lines would only arrive when the child exits. `make-process` merges both streams into one pipe.
+
+The daemon's process filter keeps a partial line buffer and accepts only lines that match
+`^organon-index-progress \([0-9]+\) \([0-9]+\)$`. Every other line is written to the engine log; nothing from
+the child is ever read as Lisp.
 
 ### D3. Swapping in the new database
 The process sentinel handles the child's exit:

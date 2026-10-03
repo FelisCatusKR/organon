@@ -14,5 +14,5 @@
 
 ## 3. End-to-end and docs
 
-- [ ] 3.1 Add the `seed-notes` ctl verb and e2e tests for knowledge-index: Large collection without an index, Node request during a rebuild, Progress, Rebuild after the index is deleted (after waiting for `ready`); and service-health: liveness while the engine is paused; verify under podman
-- [ ] 3.2 Document the probes, the background rebuild and `index_rebuilding` in `docs/deployment.md`, `docs/usage.md` and architecture §10.5, and verify the documented requests against a local stack
+- [x] 3.1 Add the `seed-notes` ctl verb and e2e tests for knowledge-index: Large collection without an index, Node request during a rebuild, Progress, Rebuild after the index is deleted (after waiting for `ready`); and service-health: liveness while the engine is paused; verify under podman
+- [x] 3.2 Document the probes, the background rebuild and `index_rebuilding` in `docs/deployment.md`, `docs/usage.md` and architecture §10.5, and verify the documented requests against a local stack
