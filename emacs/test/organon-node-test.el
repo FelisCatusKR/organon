@@ -131,14 +131,17 @@ Tasks are served meanwhile (Tasks are served during a rebuild)."
                       ("node.create" . ((title . "Too early")))))
         (should (equal (organon-test-error-code (car call) (cdr call)) "index_rebuilding")))
       (should (equal (directory-files (organon-test-file "org/knowledge/")) before)))
-    ;; Progress arrives as the child indexes files.
-    (while (and organon--index-process (null organon--index-progress))
-      (accept-process-output organon--index-process 0.1))
-    (let ((index (alist-get 'index (organon-test-result "meta"))))
-      (when organon--index-process
-        (should (<= (alist-get 'files_done index) (alist-get 'files_total index)))))
+    ;; Progress arrives as the child indexes files: record what meta shows.
+    (let (seen)
+      (while organon--index-process
+        (accept-process-output organon--index-process 0.05)
+        (let ((index (alist-get 'index (organon-test-result "meta"))))
+          (when (and organon--index-process (alist-get 'files_done index))
+            (push (cons (alist-get 'files_done index) (alist-get 'files_total index)) seen))))
+      (should seen)
+      (dolist (progress seen)
+        (should (<= (car progress) (cdr progress)))))
     (should (organon-test-result "tasks.list"))
-    (organon-test-wait-for-index)
     (let ((index (alist-get 'index (organon-test-result "meta"))))
       (should (equal (alist-get 'state index) "ready"))
       (should (null (alist-get 'files_done index))))

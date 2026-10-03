@@ -238,7 +238,10 @@ line.  Builds the database for DATA-DIR into OUTPUT and exits."
           (organon--in-request t))
       (advice-add 'org-roam-db-update-file :before
                   (lambda (&rest _)
-                    (princ (format "organon-index-progress %d %d\n" (cl-incf done) (max done total)))))
+                    ;; stderr: unbuffered, unlike stdout into a pipe, and
+                    ;; merged into the same pipe by `make-process'.
+                    (princ (format "organon-index-progress %d %d\n" (cl-incf done) (max done total))
+                           #'external-debugging-output)))
       (condition-case err
           (let ((inhibit-message t))
             (org-roam-db-sync)
