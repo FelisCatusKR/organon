@@ -257,3 +257,23 @@ func TestNodeResponsesMatchContract(t *testing.T) {
 		validateExchange(t, v, vreq, rec)
 	}
 }
+
+// knowledge-nodes: Hangul tag (API side). Tags use Org's alphabet,
+// [[:alnum:]_@#%], for tasks and nodes alike.
+func TestHangulTagsAreTags(t *testing.T) {
+	engine, h := withNodesHandler(t)
+	engine.answers["tasks.list"] = func(map[string]any) (any, error) { return []any{}, nil }
+	for _, target := range []string{"/api/v1/nodes?tag=%EC%9D%B4%EB%A7%A5%EC%8A%A4", "/api/v1/tasks?tag=%EC%9D%B4%EB%A7%A5%EC%8A%A4"} {
+		if res := do(t, h, "GET", target, readToken, ""); res.status != 200 {
+			t.Fatalf("%s: got %d %s", target, res.status, res.raw)
+		}
+	}
+	for _, p := range engine.params {
+		if p["tag"] != "이맥스" {
+			t.Fatalf("engine params = %v", engine.params)
+		}
+	}
+	if res := do(t, h, "GET", "/api/v1/nodes?tag=%E2%91%A0", readToken, ""); res.status != 422 {
+		t.Fatalf("a circled digit is not a tag character: %d", res.status)
+	}
+}

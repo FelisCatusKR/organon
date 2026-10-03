@@ -33,13 +33,21 @@ instead of failing.
 - **WHEN** the index file is replaced with bytes that are not a database and the engine is restarted
 - **THEN** the engine becomes healthy and node queries return the same results as before
 
+#### Scenario: Corrupt index without any file
+- **WHEN** `org/` holds no `.org` file, the index file is not a database, and the engine is restarted
+- **THEN** a search answers with an empty list
+
 ### Requirement: Writes are indexed when saved
 Every file the engine saves SHALL be indexed before the response is sent, so that the next request sees the
-change.
+change. If a new node's file is saved but cannot be indexed, creating it SHALL fail with `500`, never `404`.
 
 #### Scenario: Task that links to a note
 - **WHEN** a task is created whose body links to node A
 - **THEN** the next request for A's backlinks contains the task
+
+#### Scenario: New node that cannot be indexed
+- **WHEN** a node is created and org-roam fails to index its saved file
+- **THEN** the response is `500`, and the file stays on disk
 
 #### Scenario: New node is searchable
 - **WHEN** a node is created

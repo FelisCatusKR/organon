@@ -119,20 +119,22 @@ fails too, tasks keep working and node queries report the error."
   (let ((start (float-time))
         ;; Not a request, but a prompt here would hang the startup.
         (organon--in-request t))
-    (condition-case err
-        (progn
-          (condition-case err
-              (organon-index-ensure-current)
-            (error
-             (message "organon: index unusable (%s); rebuilding it" (error-message-string err))
-             (organon--index-reset)
-             (organon-index-ensure-current)))
-          (message "organon: index ready, %d nodes (%.1fs)"
-                   (caar (org-roam-db-query [:select (funcall count *) :from nodes]))
-                   (- (float-time) start)))
-      (error
-       (clrhash organon--index-stats)
-       (message "organon: could not build the index: %s" (error-message-string err))))))
+    (cl-flet ((check ()
+                ;; The count also opens the database when no file changed
+                ;; (an empty org/), so a broken one is found here too.
+                (organon-index-ensure-current)
+                (caar (org-roam-db-query [:select (funcall count *) :from nodes]))))
+      (condition-case err
+          (let ((entries (condition-case err
+                             (check)
+                           (error
+                            (message "organon: index unusable (%s); rebuilding it" (error-message-string err))
+                            (organon--index-reset)
+                            (check)))))
+            (message "organon: index ready, %d entries (%.1fs)" entries (- (float-time) start)))
+        (error
+         (clrhash organon--index-stats)
+         (message "organon: could not build the index: %s" (error-message-string err)))))))
 
 (add-hook 'organon-startup-hook #'organon-index-startup)
 
@@ -143,13 +145,17 @@ fails too, tasks keep working and node queries report the error."
 
 (defun organon--clean-node-line (value what)
   "Validate VALUE, a node title or alias, and return the form to store.
-Unlike task titles these are not headings, so only the line rules apply."
+Unlike task titles these are not headings, so only the line rules apply, and
+links are refused: org-roam would store a title with a link as the link's
+description and count the link as one of the node's links."
   (unless (and (stringp value) (not (string-blank-p value)))
     (organon-signal "invalid" (format "%s must be a non-empty string" what)))
   (when (string-match-p "[\0-\37\177]" value)
     (organon-signal "invalid" (format "%s must be a single line without control characters" what)))
   (when (> (length value) organon-title-max-length)
     (organon-signal "invalid" (format "%s must be at most %d characters" what organon-title-max-length)))
+  (when (string-search "[[" value)
+    (organon-signal "invalid" (format "%s must not contain an Org link ([[...]])" what)))
   (organon--deactivate-timestamps (string-trim value)))
 
 (defun organon--param-aliases (params)
@@ -187,18 +193,32 @@ Every org-roam node has an ID, so the keyword alone decides."
 (defun organon--archived-p (file)
   (string-prefix-p (expand-file-name "archive/" organon-org-dir) (expand-file-name file)))
 
+(defun organon--file-keyword-line-p ()
+  "Non-nil if the line at point is a keyword of the file (#+title:, ...).
+Affiliated keywords (#+caption:, #+name:, #+attr_html:, ...) are not: they
+belong to the element below them, which is part of the body."
+  (let ((case-fold-search t))
+    (and (looking-at "[ \t]*#\\+\\([[:alnum:]_-]+\\):")
+         (let ((key (upcase (match-string 1))))
+           (not (or (member key org-element-affiliated-keywords)
+                    (string-prefix-p "ATTR_" key)))))))
+
 (defun organon--file-node-body ()
-  "Text of the file node in the current buffer: after its property drawer,
-keywords and blank lines, up to the first heading; unescaped."
+  "Text of the file node in the current buffer: after its property drawer
+(which only comments and blank lines may precede), the file's keywords and
+blank lines, up to the first heading; unescaped."
   (save-excursion
     (goto-char (point-min))
     (let ((end (save-excursion
                  (if (re-search-forward org-outline-regexp-bol nil t) (match-beginning 0) (point-max)))))
+      ;; Blank and comment lines (e.g. "# -*- mode: org -*-")
+      (while (and (< (point) end) (looking-at-p "[ \t]*\\(?:#\\(?:[ \t].*\\)?\\)?$"))
+        (forward-line 1))
       (when (looking-at org-property-drawer-re)
         (goto-char (match-end 0))
         (forward-line 1))
       (while (and (< (point) end)
-                  (looking-at-p "[ \t]*\\(?:#\\+[[:alnum:]_-]+:.*\\)?$"))
+                  (or (looking-at-p "[ \t]*$") (organon--file-keyword-line-p)))
         (forward-line 1))
       (if (>= (point) end)
           ""
@@ -293,7 +313,14 @@ bytes, well below the usual 255-byte limit.")
                   (dolist (alias (reverse aliases))
                     (org-roam-property-add "ROAM_ALIASES" alias))
                   (when tags (org-roam-tag-add tags))))))
-      (organon--node-json (organon--node id) t))))
+      ;; The file is saved.  If org-roam could not index it, say so rather
+      ;; than answering "not found" for a node that was just created.
+      (organon-index-ensure-current)
+      (let ((node (org-roam-node-from-id id)))
+        (unless node
+          (organon-signal "internal" (format "saved %s, but org-roam could not index it"
+                                             (organon-relative-path file))))
+        (organon--node-json node t)))))
 
 ;;;; Queries
 

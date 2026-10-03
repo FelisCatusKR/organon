@@ -31,13 +31,17 @@ existing file.
 - **THEN** both responses carry the same `id` and only one file was created
 
 ### Requirement: Node text cannot alter Org structure
-Node titles and aliases SHALL be a single line of at most 500 characters without control characters. Bodies
-SHALL be stored with the same escaping as task bodies, so they cannot create headings, keywords, drawers, clock or
-diary entries. Active timestamps in titles and bodies SHALL be made inactive. Tags SHALL follow the task tag
-rules. Org ID links in bodies SHALL be kept as written.
+Node titles and aliases SHALL be a single line of at most 500 characters without control characters or Org
+links. Bodies SHALL be stored with the same escaping as task bodies, so they cannot create headings, keywords,
+drawers, clock or diary entries. Active timestamps in titles and bodies SHALL be made inactive. Tags SHALL follow
+the task tag rules. Org ID links in bodies SHALL be kept as written.
 
 #### Scenario: Title with a newline
 - **WHEN** a node is created with a title or an alias that contains a newline
+- **THEN** the response is `422` and no file is created
+
+#### Scenario: Link in a title
+- **WHEN** a node is created with the title `See [[id:<other node id>][the config]]`
 - **THEN** the response is `422` and no file is created
 
 #### Scenario: Body that looks like a heading
@@ -62,6 +66,11 @@ heading, after the file's keywords.
 - **GIVEN** a file in `org/knowledge/` contains a heading `* Reading list` with an `ID` and a body, followed by a child heading
 - **WHEN** a client requests that ID
 - **THEN** the response has title `Reading list` and the body without the child heading
+
+#### Scenario: Hand-written file node
+- **GIVEN** a file starts with a comment line, then its property drawer with an `ID`, `#+title:` and `#+filetags:`, then `#+caption: A picture` above a link
+- **WHEN** a client requests that ID
+- **THEN** the body starts with the `#+caption:` line and contains neither the comment, the drawer nor the file keywords
 
 #### Scenario: Unknown node
 - **WHEN** a client requests `GET /api/v1/nodes/{id}` for a well-formed UUID that no entry has
@@ -95,6 +104,10 @@ SHALL combine with AND. Without filters every such node SHALL be returned. Each 
 #### Scenario: Filter by tag
 - **WHEN** a client requests `GET /api/v1/nodes?tag=emacs`
 - **THEN** only nodes tagged `emacs` are returned
+
+#### Scenario: Hangul tag
+- **WHEN** a node is created with the tag `이맥스` and a client requests `GET /api/v1/nodes?tag=이맥스`
+- **THEN** the node is returned
 
 #### Scenario: Archived notes are not searched
 - **WHEN** a node in `org/archive/` matches the query

@@ -479,7 +479,9 @@ func (s *Server) transition(w http.ResponseWriter, r *http.Request) {
 
 var (
 	taskStates = map[string]bool{"TODO": true, "NEXT": true, "DOING": true, "WAITING": true, "DONE": true, "CANCELLED": true}
-	tagRE      = regexp.MustCompile(`^[A-Za-z0-9_@#%]+$`)
+	// Org's tag characters, [[:alnum:]_@#%]: in Emacs, alnum is any letter,
+	// mark or number of category Nl or Nd, so Hangul tags are tags too.
+	tagRE = regexp.MustCompile(`^[\p{L}\p{M}\p{Nl}\p{Nd}_@#%]+$`)
 )
 
 // listTasks validates the filters here, so that malformed values never reach

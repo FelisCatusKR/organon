@@ -97,6 +97,18 @@ modification time that visibly differs from the previous one."
       (organon-index-startup)
       (should (equal (organon-test-index-snapshot) before)))))
 
+;; A fresh instance: org/ exists but holds no .org file.
+(ert-deftest organon-node/corrupt-index-without-any-file ()
+  "knowledge-index: Corrupt index without any file."
+  (organon-test-with-knowledge
+    (dolist (file (directory-files-recursively (organon-test-file "org/") "\\.org\\'"))
+      (delete-file file))
+    (make-directory organon-cache-dir t)
+    (let ((file-precious-flag nil))
+      (with-temp-file org-roam-db-location (insert "this is not a database\n")))
+    (organon-index-startup)
+    (should (equal (organon-test-result "nodes.search") []))))
+
 ;;;; 1.3 Changes outside the engine
 
 (ert-deftest organon-node/note-written-by-another-process ()
@@ -229,6 +241,26 @@ stale buffer is re-read rather than indexed."
     (let ((node (organon-test-result "node.create" '((title . "Fresh thought")))))
       (should (equal (organon-test-search '(q . "fresh")) (list (alist-get 'id node)))))))
 
+(ert-deftest organon-node/new-node-that-cannot-be-indexed ()
+  "knowledge-index: New node that cannot be indexed."
+  (organon-test-with-knowledge
+    (organon-test-result "nodes.search")
+    (cl-letf (((symbol-function 'org-roam-db-update-file)
+               (lambda (&rest _) (error "Simulated parse failure")))
+              ;; org-roam reports per-file failures with `lwarn'.
+              ((symbol-function 'display-warning) #'ignore))
+      (should (equal (organon-test-error-code "node.create" '((title . "Unindexable"))) "internal")))
+    (should (file-exists-p (organon-test-file "org/knowledge/20261002142900-unindexable.org")))))
+
+(ert-deftest organon-node/link-in-a-title ()
+  "knowledge-nodes: Link in a title."
+  (organon-test-with-knowledge
+    (let ((before (directory-files (organon-test-file "org/knowledge/")))
+          (link (format "[[id:%s][the config]]" organon-test-emacs-note)))
+      (should (equal (organon-test-error-code "node.create" `((title . ,(concat "See " link)))) "invalid"))
+      (should (equal (organon-test-error-code "node.create" `((title . "ok") (aliases . [,link]))) "invalid"))
+      (should (equal (directory-files (organon-test-file "org/knowledge/")) before)))))
+
 ;;;; 1.5 node.get
 
 (ert-deftest organon-node/read-a-created-node ()
@@ -252,6 +284,20 @@ stale buffer is re-read rather than indexed."
       (should (equal (alist-get 'aliases node) ["init.el" "닷 이맥스"]))
       (should (equal (alist-get 'tags node) ["emacs" "tools"]))
       (should (equal (alist-get 'body node) "Notes about my Emacs configuration.")))))
+
+(ert-deftest organon-node/hand-written-file-node ()
+  "knowledge-nodes: Hand-written file node."
+  (organon-test-with-knowledge
+    (organon-test-write-outside
+     "org/knowledge/commented.org"
+     (concat "# -*- mode: org -*-\n"
+             ":PROPERTIES:\n:ID:       eeeeeeee-0000-4000-8000-000000000002\n:END:\n"
+             "#+title: Commented\n#+filetags: :pics:\n\n"
+             "#+caption: A picture\n[[file:pond.png]]\n\nMore text.\n"))
+    (let ((node (organon-test-result "node.get" '((id . "eeeeeeee-0000-4000-8000-000000000002")))))
+      (should (equal (alist-get 'title node) "Commented"))
+      (should (equal (alist-get 'tags node) ["pics"]))
+      (should (equal (alist-get 'body node) "#+caption: A picture\n[[file:pond.png]]\n\nMore text.")))))
 
 (ert-deftest organon-node/unknown-node ()
   "knowledge-nodes: Unknown node."
@@ -283,6 +329,12 @@ stale buffer is re-read rather than indexed."
                    (list organon-test-emacs-note organon-test-keys-note)))
     (should (equal (organon-test-search '(tag . "tools") '(q . "init")) (list organon-test-emacs-note)))
     (should (equal (organon-test-search '(tag . "tools") '(q . "keys")) nil))))
+
+(ert-deftest organon-node/hangul-tag ()
+  "knowledge-nodes: Hangul tag."
+  (organon-test-with-knowledge
+    (let ((node (organon-test-result "node.create" '((title . "한글 태그") (tags . ["이맥스"])))))
+      (should (equal (organon-test-search '(tag . "이맥스")) (list (alist-get 'id node)))))))
 
 (ert-deftest organon-node/archived-notes-are-not-searched ()
   "knowledge-nodes: Archived notes are not searched."

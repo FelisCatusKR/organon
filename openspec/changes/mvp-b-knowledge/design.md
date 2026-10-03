@@ -58,8 +58,12 @@ Text rules reuse the task helpers from `organon-task.el`:
   timestamps made inactive). Links are not touched, so `[[id:…][…]]` in a body becomes a real link.
 - Tags use `organon--param-tags`.
 - Titles and aliases are not headings, so priority cookies, a leading `COMMENT` or a trailing `:tag:` mean
-  nothing in them. They only need to be one line without control characters, at most 500 characters, with
-  timestamps made inactive.
+  nothing in them. They must be one line without control characters, at most 500 characters, with
+  timestamps made inactive, and without Org links: org-roam stores a title through `org-link-display-format`
+  (so `[[id:…][x]]` would come back as `x`) and counts the link as one of the node's links.
+- Tags use Org's alphabet, `[[:alnum:]_@#%]`, in the engine, in Go and in `openapi.yaml` alike, so a Hangul
+  tag can be set and also filtered on. (Go and the contract used to accept ASCII only, which made Hangul task
+  tags unfilterable too.)
 
 The node module requires `organon-task` instead of moving these helpers. Moving them would churn the task code
 for no behavior change.
@@ -83,8 +87,9 @@ include them: archived notes keep their IDs and the links they carry.
   connections to a previous instance's database (tests configure many instances in one process).
 - **Startup:** `organon-start` runs `org-roam-db-sync` after the org-id scan and before the socket listens.
   The health check therefore fails until the index is in sync. With an existing database the sync is
-  incremental: org-roam compares file hashes. Without one it is a full rebuild. If the sync signals an error
-  (an unreadable or foreign database file), the engine deletes the database and syncs once more. If that also
+  incremental: org-roam compares file hashes. Without one it is a full rebuild. If the sync or a first query
+  signals an error (an unreadable or foreign database file), the engine deletes the database and syncs once
+  more. If that also
   fails, it logs and keeps serving tasks; node queries then fail with `internal`.
 - **On save:** a global `after-save-hook` function calls `org-roam-db-update-file` for files under `org/`.
   We don't enable `org-roam-db-autosync-mode`, for two reasons. The mode also advises the primitives
@@ -105,10 +110,14 @@ include them: archived notes keep their IDs and the links they carry.
   `.org.gpg`/`.org.age` files are excluded: decrypting would prompt.
 
 ### D4. Queries go through org-roam's API, filtered in Lisp
+- `node.create` answers from the index after the save. If org-roam could not index the new file, that is
+  `internal` (the file is saved), never `not_found`.
 - `node.get`: `org-roam-node-from-id`, then `org-roam-node-file` / `org-roam-node-point` to read the body
   from a fresh buffer. A heading node uses the task body reader, which stops at the next heading. A file node
-  takes the text after the top property drawer and the leading keyword and blank lines, up to the first
-  heading. The body is unescaped like a task body.
+  takes the text after its property drawer (which only comment and blank lines may precede) and the file's
+  keywords and blank lines, up to the first heading. Affiliated keywords such as `#+caption:` belong to the
+  element below them and stay in the body (`org-element-affiliated-keywords`, `#+attr_*`). The body is
+  unescaped like a task body.
 - `node.backlinks`: `org-roam-backlinks-get` with `:unique t`.
 - `node.links`: a query on org-roam's `links` table (`source = id`, `type = "id"`), joined with `nodes` so
   that dangling targets drop out.

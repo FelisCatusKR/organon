@@ -83,7 +83,7 @@ drawer boundaries, clock entries and diary sexps (the agenda also evaluates `&%%
                        (unless (and (stringp tag) (string-match-p "\\`[[:alnum:]_@#%]+\\'" tag))
                          (organon-signal "invalid" (format "invalid tag %S (letters, digits, _@#%% only)" tag)))
                        (when (equal tag org-archive-tag)
-                         (organon-signal "invalid" (format "tag %s hides a task from the agenda" tag)))
+                         (organon-signal "invalid" (format "tag %s is reserved: Org hides entries that carry it" tag)))
                        tag)
                      tags)))))
 

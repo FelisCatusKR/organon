@@ -176,7 +176,7 @@ paths:
         - name: tag
           in: query
           required: false
-          schema: { type: string, pattern: "^[A-Za-z0-9_@#%]+$" }
+          schema: { type: string, pattern: "^[\\p{L}\\p{M}\\p{Nl}\\p{Nd}_@#%]+$" }
       responses:
         "200": { $ref: "#/components/responses/TaskList" }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -361,7 +361,7 @@ paths:
         - name: tag
           in: query
           required: false
-          schema: { type: string, pattern: "^[A-Za-z0-9_@#%]+$" }
+          schema: { type: string, pattern: "^[\\p{L}\\p{M}\\p{Nl}\\p{Nd}_@#%]+$" }
       responses:
         "200":
           description: Matching nodes.
@@ -712,7 +712,7 @@ components:
         tags:
           type: array
           description: "`ARCHIVE` is rejected: Org hides archived tasks from the agenda."
-          items: { type: string, pattern: "^[A-Za-z0-9_@#%]+$" }
+          items: { type: string, pattern: "^[\\p{L}\\p{M}\\p{Nl}\\p{Nd}_@#%]+$" }
         scheduled: { $ref: "#/components/schemas/TimestampInput" }
         deadline: { $ref: "#/components/schemas/TimestampInput" }
         repeat_to_state:
@@ -738,7 +738,7 @@ components:
             - type: "null"
         tags:
           type: array
-          items: { type: string, pattern: "^[A-Za-z0-9_@#%]+$" }
+          items: { type: string, pattern: "^[\\p{L}\\p{M}\\p{Nl}\\p{Nd}_@#%]+$" }
         scheduled:
           oneOf:
             - $ref: "#/components/schemas/TimestampInput"
@@ -867,7 +867,7 @@ components:
             (`[[id:<uuid>][label]]`) are kept and become links and backlinks.
         tags:
           type: array
-          items: { type: string, pattern: "^[A-Za-z0-9_@#%]+$" }
+          items: { type: string, pattern: "^[\\p{L}\\p{M}\\p{Nl}\\p{Nd}_@#%]+$" }
         aliases:
           type: array
           maxItems: 50

@@ -115,7 +115,7 @@ organon project list
 organon node add "Emacs 설정 노트" --tag emacs --alias init.el --body "Keys live in the init file."
 organon node add "Key bindings" --body "See [[id:a1b2c3d4-…][Emacs 설정 노트]]."   # a link (full ID)
 organon node search init                # title or alias, ignoring case; --tag T filters
-organon node show a1b2
+organon node show a1b2                  # archived notes need their full ID
 organon node backlinks a1b2             # notes and tasks that link here
 organon node links b7e1                 # what this note links to
 ```
