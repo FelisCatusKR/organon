@@ -75,7 +75,8 @@ func newTestServer(t *testing.T) (*fakeEngine, http.Handler) {
 	engine := &fakeEngine{answers: map[string]func(map[string]any) (any, error){
 		"ping": func(map[string]any) (any, error) { return map[string]string{"status": "ok"}, nil },
 		"meta": func(map[string]any) (any, error) {
-			return map[string]any{"calendar_tz": "Asia/Seoul", "today": "2026-10-02", "doing_limit": 3, "engine_version": "e"}, nil
+			return map[string]any{"calendar_tz": "Asia/Seoul", "today": "2026-10-02", "doing_limit": 3, "engine_version": "e",
+				"index": map[string]any{"state": "ready", "files_done": nil, "files_total": nil}}, nil
 		},
 		"task.get": func(p map[string]any) (any, error) { return sampleTask(p["id"].(string)), nil },
 		"task.create": func(p map[string]any) (any, error) {
@@ -156,13 +157,15 @@ func TestHealthNeedsNoToken(t *testing.T) {
 	defer func(d time.Duration) { healthCacheFor = d }(healthCacheFor)
 	healthCacheFor = 0
 	engine, h := newTestServer(t)
-	if res := do(t, h, "GET", "/healthz", "", ""); res.status != 200 || res.body["status"] != "ok" {
-		t.Fatalf("got %d %s", res.status, res.raw)
+	for _, path := range []string{"/healthz", "/readyz", "/livez"} {
+		if res := do(t, h, "GET", path, "", ""); res.status != 200 || res.body["status"] != "pass" {
+			t.Fatalf("%s: got %d %s", path, res.status, res.raw)
+		}
 	}
 	engine.answers["ping"] = func(map[string]any) (any, error) {
 		return nil, &rpc.Error{Code: rpc.CodeUnavailable, Message: "Missing organon.json"}
 	}
-	if res := do(t, h, "GET", "/healthz", "", ""); res.status != 503 || res.body["code"] != "engine_unavailable" ||
+	if res := do(t, h, "GET", "/healthz", "", ""); res.status != 503 || res.body["status"] != "fail" ||
 		strings.Contains(res.raw, "organon.json") {
 		t.Fatalf("got %d %s", res.status, res.raw)
 	}

@@ -54,11 +54,13 @@ func (e *TransportError) Error() string { return e.Err.Error() }
 func (e *TransportError) Unwrap() error { return e.Err }
 
 // OutcomeUnknown reports whether err leaves it open whether a change was
-// applied: no response at all, or the engine did not answer in time.
+// applied: no response at all, or the engine did not answer in time. A 503
+// index_rebuilding is known: the engine refused before changing anything.
 func OutcomeUnknown(err error) bool {
 	var te *TransportError
 	var ae *APIError
-	return errors.As(err, &te) || (errors.As(err, &ae) && ae.Status == http.StatusServiceUnavailable)
+	return errors.As(err, &te) ||
+		(errors.As(err, &ae) && ae.Status == http.StatusServiceUnavailable && ae.Code != "index_rebuilding")
 }
 
 // Do sends a request and decodes a successful JSON response into out (if

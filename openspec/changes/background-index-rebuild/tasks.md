@@ -8,9 +8,9 @@
 
 ## 2. API
 
-- [ ] 2.1 Extend `api/openapi.yaml` (`/livez`, `/readyz`, `/healthz` body, `Meta.index`, problem code `index_rebuilding`), regenerate types, and verify `mise run lint:openapi` and `mise run check:generated`
-- [ ] 2.2 Implement `/livez`, `/readyz` and `/healthz` as its alias (D5), and verify unit tests for service-health: Engine paused (liveness), Ready, Index rebuilding, Engine unavailable, Same answer; and api-access: Health without token
-- [ ] 2.3 Map `index_rebuilding` to `503` with `Retry-After` and pass `meta.index` through, and verify unit tests including contract validation
+- [x] 2.1 Extend `api/openapi.yaml` (`/livez`, `/readyz`, `/healthz` body, `Meta.index`, problem code `index_rebuilding`), regenerate types, and verify `mise run lint:openapi` and `mise run check:generated`
+- [x] 2.2 Implement `/livez`, `/readyz` and `/healthz` as its alias (D5), and verify unit tests for service-health: Engine paused (liveness), Ready, Index rebuilding, Engine unavailable, Same answer; and api-access: Health without token
+- [x] 2.3 Map `index_rebuilding` to `503` with `Retry-After` and pass `meta.index` through, and verify unit tests including contract validation
 
 ## 3. End-to-end and docs
 

@@ -80,3 +80,13 @@ func TestTimeoutAndUnavailableAreUnknownOutcomes(t *testing.T) {
 		t.Fatalf("timeout: %#v", err)
 	}
 }
+
+// A rebuilding index refuses before changing anything, so the outcome is known.
+func TestIndexRebuildingIsAKnownOutcome(t *testing.T) {
+	if OutcomeUnknown(&APIError{Status: 503, Code: "index_rebuilding"}) {
+		t.Fatal("index_rebuilding reported as an unknown outcome")
+	}
+	if !OutcomeUnknown(&APIError{Status: 503, Code: "engine_unavailable"}) {
+		t.Fatal("engine_unavailable must stay an unknown outcome")
+	}
+}

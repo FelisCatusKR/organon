@@ -18,12 +18,14 @@ import (
 // Error codes sent by the engine. Unavailable is also used by this client
 // when the engine cannot be reached or does not answer in time.
 const (
-	CodeInvalid       = "invalid"
-	CodeNotFound      = "not_found"
-	CodeConflict      = "conflict"
-	CodeUnavailable   = "unavailable"
-	CodePromptBlocked = "prompt_blocked"
-	CodeInternal      = "internal"
+	CodeInvalid     = "invalid"
+	CodeNotFound    = "not_found"
+	CodeConflict    = "conflict"
+	CodeUnavailable = "unavailable"
+	// The note index is being rebuilt; node methods can be retried later.
+	CodeIndexRebuilding = "index_rebuilding"
+	CodePromptBlocked   = "prompt_blocked"
+	CodeInternal        = "internal"
 )
 
 // Error is an error response from the engine (or an unreachable engine).

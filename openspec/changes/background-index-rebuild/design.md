@@ -85,8 +85,8 @@ instead of hanging.
   Ten seconds is a polling hint, not an estimate; clients that want more read `/meta`.
 - **`ping`**: returns `{status: "ok", index: <state>}`.
   - `GET /readyz` and `GET /healthz` use it, behind the existing one-second cache.
-  - Engine reachable: `200` with `{"status":"pass"}`, or `{"status":"warn","output":"index rebuilding"}` /
-    `"index failed"`. Engine unreachable: `503` with `{"status":"fail","output":"engine unavailable"}`.
+  - Engine reachable: `200` with `{"status":"pass"}`, or `{"status":"warn","output":"note index rebuilding"}` /
+    `"note index failed"`. Engine unreachable: `503` with `{"status":"fail","output":"engine unavailable"}`.
   - Content type `application/health+json`.
 - **`GET /livez`**: `200` with `{"status":"pass"}`. No engine call, no cache.
 - **`Meta.index`**: `{state, files_done, files_total}`. The counts are `null` unless the state is `rebuilding`.
