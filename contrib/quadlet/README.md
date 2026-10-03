@@ -15,7 +15,7 @@ cp *.container *.volume ~/.config/containers/systemd/
 podman run --rm --userns keep-id:uid=1000,gid=1000 -v ~/organon/data:/data:Z \
   ghcr.io/feliscatuskr/organon:main organon init --calendar-tz Asia/Seoul
 podman run --rm ghcr.io/feliscatuskr/organon:main \
-  organon token new --name me --scopes read,tasks:write
+  organon token new --name me --scopes read,tasks:write,nodes:write
 # put the printed "tokens file line" into a file, then:
 podman secret create organon-tokens ./tokens
 

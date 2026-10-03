@@ -7,9 +7,9 @@ of it. Your tasks, notes and journal stay in plain `.org` files that you own; ev
 can be rebuilt from those files. Org already knows how to do TODO states, repeating tasks, deadlines with
 warnings and agendas, so Organon does not reimplement any of it. It only exposes it safely.
 
-> **Status:** early development. MVP-A (tasks) works: create, complete, repeat, skip/cancel, today /
-> overdue / waiting / completed. Knowledge nodes and backlinks (org-roam) come next. Expect breaking
-> changes before 1.0.
+> **Status:** early development. Tasks work: create, edit, complete, repeat, skip/cancel, today /
+> overdue / waiting / completed, projects. Notes work too (org-roam nodes): create, read, search, links and
+> backlinks. Journal and capture come next. Expect breaking changes before 1.0.
 
 - Design and rationale: [`docs/architecture.md`](docs/architecture.md) (Korean)
 - Behavioral contract: [`openspec/`](openspec/); HTTP contract: [`api/openapi.yaml`](api/openapi.yaml)
@@ -38,10 +38,10 @@ mkdir -p data
 #    it decides what "today" is and is stored with your data. It is required.
 docker compose run --rm engine organon init --calendar-tz Asia/Seoul
 
-# 2. Create an API token. Scopes: read, tasks:write.
-docker compose run --rm --no-deps engine organon token new --name me --scopes read,tasks:write
+# 2. Create an API token. Scopes: read, tasks:write (tasks and projects), nodes:write (notes).
+docker compose run --rm --no-deps engine organon token new --name me --scopes read,tasks:write,nodes:write
 #    Keep the printed token. Put the printed "tokens file line" into ./tokens:
-echo 'me read,tasks:write <sha256…>' > tokens
+echo 'me read,tasks:write,nodes:write <sha256…>' > tokens
 
 # 3. Start. The API waits until the engine is healthy.
 docker compose up -d
@@ -111,6 +111,13 @@ organon task edit 3f2a --priority none --scheduled none
 organon project add "Home renovation"
 organon task add "Order tiles" --project 7777
 organon project list
+
+organon node add "Emacs 설정 노트" --tag emacs --alias init.el --body "Keys live in the init file."
+organon node add "Key bindings" --body "See [[id:a1b2c3d4-…][Emacs 설정 노트]]."   # a link (full ID)
+organon node search init                # title or alias, ignoring case; --tag T filters
+organon node show a1b2
+organon node backlinks a1b2             # notes and tasks that link here
+organon node links b7e1                 # what this note links to
 ```
 
 Dates are passed to the API as you type them; Org computes everything else. Every command takes `--json` to
@@ -151,6 +158,19 @@ curl -s "${auth[@]}" -H 'Content-Type: application/json' \
 curl -s "${auth[@]}" $API/tasks/completed  # completed today, repeating tasks included
 ```
 
+Notes are org-roam nodes. A body may link to another note or task with an Org ID link,
+`[[id:<id>][label]]`; links and backlinks come from those:
+
+```sh
+curl -s "${auth[@]}" -H 'Content-Type: application/json' \
+  -d '{"title":"Emacs 설정 노트","tags":["emacs"],"aliases":["init.el"],"body":"Keys live in the init file."}' \
+  $API/nodes
+curl -s "${auth[@]}" "$API/nodes?q=init"          # search titles and aliases; &tag= filters
+curl -s "${auth[@]}" $API/nodes/<id>
+curl -s "${auth[@]}" $API/nodes/<id>/backlinks    # [{"id","title","kind":"node"|"task"}]
+curl -s "${auth[@]}" $API/nodes/<id>/links
+```
+
 Other transitions: `start` (→ DOING), `wait` (→ WAITING), `skip` (cancel this occurrence; a repeating task
 moves to the next one), `cancel` (→ CANCELLED; ends a repeating series), `todo` / `next` (also reopen a
 closed task). Edit a task with `PATCH /api/v1/tasks/{id}` (`expected_version` plus the fields to change; `null`
@@ -187,7 +207,7 @@ data/
 ├── org/
 │   ├── tasks/inbox.org new tasks go here
 │   ├── projects/       one file per project; tasks under a level-1 heading belong to it
-│   ├── knowledge/      notes (org-roam, from MVP-B)
+│   ├── knowledge/      notes: one org-roam file per note (YYYYMMDDHHMMSS-slug.org)
 │   ├── journal/
 │   └── archive/
 └── attachments/
@@ -196,6 +216,12 @@ data/
 These are ordinary Org files: open them in Emacs or any text editor. While the stack runs, make changes
 through the API. To edit by hand, stop the engine first (`docker compose stop engine`), edit, then start it
 again.
+
+**The note index is a cache.** Links, backlinks and search come from org-roam's database in the cache volume,
+never from the data directory. The engine brings it up to date with the files when it starts (and before
+answering a note query if a file changed on disk), so a hand edit made while the engine was stopped shows up
+after the start. If the database is missing or unreadable, the engine rebuilds it before reporting healthy:
+about 25 seconds per 1,000 notes on a Raspberry Pi 4, so the first start of a large collection takes a while.
 
 ### Backups
 
