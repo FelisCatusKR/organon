@@ -39,9 +39,11 @@ The background rebuild uses `make-process`. The child runs the same Emacs binary
 the function `organon-index-build`, with three arguments:
 - the data directory
 - the cache directory
-- the output file `org-roam.db.rebuild` in the cache directory, deleted first
+- the output file, a new name `org-roam.db.rebuild-XXXXXX` in the cache directory per rebuild, so that a
+  stray child of an earlier engine can never share it; leftovers are deleted before each rebuild
 
-The child configures the instance like the daemon, then points `org-roam-db-location` at the output file and runs
+The child configures the instance like the daemon (with the cache directory as its run directory: it never
+opens the socket, and so it writes nothing outside the mounts), then points `org-roam-db-location` at the output file and runs
 `org-roam-db-sync`. It must not write the daemon's caches. Org-id global tracking is turned off in the child, so
 its exit hook never rewrites `org-id-locations`.
 
@@ -66,7 +68,11 @@ The process sentinel handles the child's exit:
   4. Set the state to `ready`.
   5. Run `organon-index-ensure-current`. That indexes every file the engine wrote during the rebuild; their stats
      were never recorded (D4).
+  Only the rename decides success. If the catch-up sync fails, that is logged and the state stays `ready`:
+  every node query runs it again.
 - **Anything else:** set the state to `failed`, log the exit status, delete the output file.
+- **The child cannot be started** (`make-process` fails, the cache is not writable): `failed`, logged, and the
+  engine still starts and serves tasks.
   - Node methods then fail with `internal` until the engine restarts. The next start finds no database and tries
     again.
 

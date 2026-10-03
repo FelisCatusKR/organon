@@ -105,7 +105,8 @@ against it. Your own unit files can rely on the same interface:
   - `GET /livez`: the API process is up. It never contacts the engine, so use it for liveness: an engine
     outage then does not restart the API.
   - `GET /readyz`: the engine answers. It returns `200` with status `pass`, or `warn` while the note index
-    is rebuilding (tasks work, notes answer `503`). It returns `503` with status `fail` when the engine does
+    is rebuilding (tasks work, notes answer `503`) or after its rebuild failed (tasks work, notes answer
+    `500` until the engine is restarted). It returns `503` with status `fail` when the engine does
     not answer. Use it for readiness and to order startup.
   - `GET /healthz` answers exactly like `/readyz`; the `organon healthcheck` command uses it.
   - Probes need only the status code; the body has the shape of `application/health+json`.

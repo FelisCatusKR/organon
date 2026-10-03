@@ -87,7 +87,7 @@ modification time that visibly differs from the previous one."
       (organon-test-wait-for-index)
       (should (eq organon--index-state 'ready))
       (should (file-exists-p org-roam-db-location))
-      (should-not (file-exists-p (concat org-roam-db-location ".rebuild")))
+      (should-not (directory-files organon-cache-dir nil "\\`org-roam\\.db\\.rebuild-"))
       (should (equal (organon-test-index-snapshot) before)))))
 
 (ert-deftest organon-node/corrupt-index ()
@@ -131,13 +131,20 @@ Tasks are served meanwhile (Tasks are served during a rebuild)."
                       ("node.create" . ((title . "Too early")))))
         (should (equal (organon-test-error-code (car call) (cdr call)) "index_rebuilding")))
       (should (equal (directory-files (organon-test-file "org/knowledge/")) before)))
-    ;; Progress arrives as the child indexes files: record what meta shows.
+    ;; Progress arrives as the child indexes files.  Record every value the
+    ;; filter stores (sampling meta could miss them all on a fast machine),
+    ;; and check meta while one is set.
     (let (seen)
-      (while organon--index-process
-        (accept-process-output organon--index-process 0.05)
-        (let ((index (alist-get 'index (organon-test-result "meta"))))
-          (when (and organon--index-process (alist-get 'files_done index))
-            (push (cons (alist-get 'files_done index) (alist-get 'files_total index)) seen))))
+      (cl-letf* ((filter (symbol-function 'organon--index-filter))
+                 ((symbol-function 'organon--index-filter)
+                  (lambda (proc chunk)
+                    (funcall filter proc chunk)
+                    (when organon--index-progress
+                      (push organon--index-progress seen)
+                      (let ((index (alist-get 'index (organon-test-result "meta"))))
+                        (should (equal (alist-get 'files_done index) (car organon--index-progress))))))))
+        (set-process-filter organon--index-process #'organon--index-filter)
+        (organon-test-wait-for-index))
       (should seen)
       (dolist (progress seen)
         (should (<= (car progress) (cdr progress)))))
@@ -171,7 +178,36 @@ Tasks are served meanwhile (Tasks are served during a rebuild)."
     (should (equal (alist-get 'state (alist-get 'index (organon-test-result "meta"))) "failed"))
     (should (equal (organon-test-error-code "nodes.search") "internal"))
     (should (organon-test-result "tasks.list"))
-    (should-not (file-exists-p (concat org-roam-db-location ".rebuild")))))
+    (should-not (directory-files organon-cache-dir nil "\\`org-roam\\.db\\.rebuild-"))))
+
+(ert-deftest organon-node/rebuild-that-cannot-start ()
+  "A rebuild that cannot even start leaves the index failed, not the engine down."
+  (organon-test-with-knowledge
+    (organon--index-reset)
+    (cl-letf (((symbol-function 'make-process)
+               (lambda (&rest _) (error "Resource temporarily unavailable"))))
+      (organon-index-startup))
+    (should (eq organon--index-state 'failed))
+    (should (equal (organon-test-error-code "nodes.search") "internal"))
+    (should (organon-test-result "tasks.list"))))
+
+(ert-deftest organon-node/catch-up-failure-keeps-the-rebuilt-index ()
+  "Only the swap decides success: a failed catch-up sync is retried later."
+  (organon-test-with-knowledge
+    (organon--index-reset)
+    (organon-index-startup)
+    (let ((ensure (symbol-function 'organon-index-ensure-current))
+          (failed-once nil))
+      (cl-letf (((symbol-function 'organon-index-ensure-current)
+                 (lambda ()
+                   (if failed-once
+                       (funcall ensure)
+                     (setq failed-once t)
+                     (error "Simulated catch-up failure")))))
+        (organon-test-wait-for-index)
+        (should failed-once)
+        (should (eq organon--index-state 'ready))
+        (should (= (length (organon-test-result "nodes.search")) 4))))))
 
 ;;;; 1.3 Changes outside the engine
 
