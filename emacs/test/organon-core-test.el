@@ -132,14 +132,18 @@
 ;;;; 3.3 Time model
 
 (ert-deftest organon-core/missing-config-makes-engine-unavailable ()
-  "time-model: Missing declaration."
+  "time-model: Missing declaration; deployment: No implicit initialization."
   (organon-test-with-instance "basic" "2026-10-02 05:29:00"
     (delete-file (organon-test-file "organon.json"))
     (organon-load-config)
-    (let ((err (alist-get 'error (organon-test-call "ping"))))
-      (should (equal (alist-get 'code err) "unavailable"))
-      (should (string-match-p "organon\\.json" (alist-get 'message err))))
-    (should (equal (organon-test-error-code "meta") "unavailable"))))
+    (let ((before (directory-files-recursively organon-data-dir "" t)))
+      (let ((err (alist-get 'error (organon-test-call "ping"))))
+        (should (equal (alist-get 'code err) "unavailable"))
+        (should (string-match-p "organon\\.json" (alist-get 'message err))))
+      (should (equal (organon-test-error-code "meta") "unavailable"))
+      (should (equal (organon-test-error-code "task.create" '((title . "Lost"))) "unavailable"))
+      ;; Nothing is created: no organon.json, no inbox entry, no new files.
+      (should (equal (directory-files-recursively organon-data-dir "" t) before)))))
 
 (ert-deftest organon-core/invalid-zone-is-named ()
   "time-model: Invalid zone."

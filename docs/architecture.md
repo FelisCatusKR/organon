@@ -1,6 +1,6 @@
 # Organon 아키텍처
 
-- **상태**: 초안 (2026-10-02)
+- **상태**: MVP-A(task)와 task 편집·목록·프로젝트·CLI까지 구현, MVP-B(org-roam)는 설계 단계 (2026-10-03)
 - **한 줄 요약**: Emacs + Org-mode + org-roam을 headless 엔진으로 쓰고, 그 위에 내가 통제하는
   Personal API를 계약으로 둔다.
 
@@ -12,6 +12,7 @@
 | 문서 | 다루는 것 | 언어 |
 |---|---|---|
 | `docs/architecture.md` (이 문서) | **왜, 어떻게**: 경계, 보안, 시간 모델, 실측 근거, 전체에 걸친 결정 | 한국어 |
+| `docs/usage.md`, `docs/deployment.md` | 사용자 문서: CLI·API 사용법, 설치·설정·노출·백업 | 영어 |
 | `openspec/specs/<capability>/spec.md` | **무엇을**: 관찰 가능한 동작 계약 (requirement + WHEN/THEN scenario) | 영어 |
 | `openspec/changes/<change>/` | 진행 중인 변경 (proposal, design, spec delta, tasks) | 영어 |
 | `api/openapi.yaml` | HTTP wire 형식 계약 | 영어 |
@@ -44,8 +45,8 @@
 ## 2. 컴포넌트
 
 ```
-   Hermes / Web / Android / curl
-              │  HTTPS (Cloudflare tunnel, outbound only)
+   AI 에이전트 / Web / Android / CLI
+              │  HTTPS (앞단 reverse proxy나 터널에서 TLS 종료)
               ▼
  ┌──────────────────────────┐   container: organon-api
  │ Personal API (Go)        │   - 인증·scope·입력 검증·멱등성
@@ -53,7 +54,7 @@
  └────────────┬─────────────┘   - 데이터 디렉터리 mount 없음
               │ JSON-RPC over Unix socket  (/run/organon/rpc.sock)
               │ 화이트리스트 method만 존재. eval 경로 없음.
- ┌────────────▼─────────────┐   container: organon-emacs  (Network=none)
+ ┌────────────▼─────────────┐   container: organon-engine (Network=none)
  │ Emacs daemon             │
  │  organon.el (adapter)    │   - 모든 읽기/쓰기의 유일한 경로
  │  Org / Agenda / org-id   │   - 단일 스레드라 요청이 자연스럽게 직렬화됨
@@ -61,7 +62,7 @@
  └────────────┬─────────────┘
               │ find-file / save-buffer (atomic rename)
               ▼
-     /srv/personal  (host bind mount, canonical)
+     데이터 디렉터리  (host bind mount, canonical)
 ```
 
 | 컴포넌트 | 책임 | 하지 않는 것 |
@@ -70,24 +71,26 @@
 | `organon.el` (Elisp) | RPC 서버, method dispatch, 변경 공통 래퍼(§6), Org/org-roam API 호출, 결과 직렬화 | 네트워크 노출, 임의 eval |
 | Org-mode | task 상태, repeater, agenda, ID | — |
 | org-roam | node, backlink, link index (SQLite cache) | canonical 저장 |
-| 클라이언트 | UX, 현지 시각 표시, 자연어 해석(Hermes) | 파일 직접 접근, 날짜 의미 계산 |
+| 클라이언트 | UX, 현지 시각 표시, 자연어 해석(AI 에이전트) | 파일 직접 접근, 날짜 의미 계산 |
 
 ## 3. 데이터 소유권과 Source of Truth
 
+이 문서에서 `<data>`는 호스트의 데이터 디렉터리를 뜻한다(Compose의 `ORGANON_DATA`, 기본값 `./data`).
+
 | 데이터 | 위치 | 성격 | 삭제하면 |
 |---|---|---|---|
-| `.org` 파일 | `/srv/personal/org` | **canonical** | 백업에서 복원 |
-| 첨부 파일 | `/srv/personal/attachments` | **canonical** | 백업에서 복원 |
-| 인스턴스 선언 | `/srv/personal/organon.json` | **canonical** (데이터의 일부) | 백업에서 복원 |
+| `.org` 파일 | `<data>/org` | **canonical** | 백업에서 복원 |
+| 첨부 파일 | `<data>/attachments` | **canonical** | 백업에서 복원 |
+| 인스턴스 선언 | `<data>/organon.json` | **canonical** (데이터의 일부) | 백업에서 복원 |
 | org-roam DB | `organon-cache` volume | cache | 기동할 때 재구축 |
 | `org-id-locations` | `organon-cache` volume | cache | 기동할 때 재구축 |
 | native-comp `.eln` | 이미지 안 (빌드 시 AOT) | build artifact | 이미지 재빌드 |
 | RPC socket | `organon-run` volume | runtime | 기동할 때 재생성 |
-| API 토큰 해시 | podman secret | 설정 | 재발급 |
+| API 토큰 해시 | 토큰 파일 (Compose secret / podman secret) | 설정 | 재발급 |
 
-**불변식**: cache, 컨테이너, 이미지, volume을 모두 지워도 `/srv/personal`만 있으면 같은 상태로 복원된다.
+**불변식**: cache, 컨테이너, 이미지, volume을 모두 지워도 `<data>`만 있으면 같은 상태로 복원된다.
 
-**쓰기 규칙**: `/srv/personal`에 쓰는 프로세스는 `organon-emacs` 하나뿐이다. 사람이 직접 편집하는 것은
+**쓰기 규칙**: `<data>`에 쓰는 프로세스는 `organon-engine` 하나뿐이다. 사람이 직접 편집하는 것은
 정상 경로가 아니다. 비상시 절차는 §10.5에 있다.
 
 ## 4. 시간 모델
@@ -106,14 +109,16 @@ repeater 기준일)는 파일에 기록된다. 그래서 클라이언트가 나�
 | 클라이언트 | instant를 현지화한다. 필요하면 `?date=`로 자기 기준의 "오늘"을 조회한다 |
 
 ```json
-// /srv/personal/organon.json
-{ "calendar_tz": "Asia/Seoul", "extend_today_until": 0 }
+// <data>/organon.json
+{ "calendar_tz": "Asia/Seoul", "doing_limit": 3 }
 ```
 
 - 인스턴스 하나 = 달력 하나 = 타임존 하나다. 가족이 공유하는 달력도 집 기준 타임존 하나를 쓴다.
-- `organon-emacs`는 기동할 때 `calendar_tz`를 `TZ`로 적용하고 `(current-time-zone)`으로 검증한다.
-  선언이 없거나 검증에 실패하면 **기동을 거부한다**. 조용히 UTC로 떨어지지 않게 하기 위해서다.
-- `organon init`이 호스트 타임존을 감지해서 제안하고, 사용자가 확인하면 파일을 쓴다.
+- 엔진은 기동할 때 `calendar_tz`가 zoneinfo의 실제 지역 시간대(TZif 데이터)인지 확인하고 `TZ`로 적용한다.
+  `localtime`, `posixrules`, `Factory`처럼 지역이 아닌 이름도 거부한다. 선언이 없거나 검증에 실패하면
+  **요청을 받지 않는다**(`unavailable`). 조용히 UTC나 호스트 타임존으로 떨어지지 않게 하기 위해서다.
+- `organon init`은 `--calendar-tz`를 필수로 받는다. 빠뜨리면 호스트 타임존을 감지해 실행할 명령을 제안할
+  뿐 파일을 쓰지 않는다.
 - **알려진 한계**: `calendar_tz`를 바꾸면 과거 LOGBOOK 벽시계 시각이 새 타임존으로 해석된다. Org
   타임스탬프가 offset을 저장하지 못하기 때문이다. 필요해지면 `tz_history`(적용 시작일별 이력)를 추가한다.
 - DST 지역: repeater는 벽시계를 유지한다. 존재하지 않는 벽시계 시각이나 두 번 나오는 시각을 UTC로
@@ -122,7 +127,7 @@ repeater 기준일)는 파일에 기록된다. 그래서 클라이언트가 나�
 ## 5. Org 파일 레이아웃
 
 ```
-/srv/personal/
+<data>/
 ├── organon.json                 인스턴스 선언 (calendar_tz 등)
 ├── org/                         org-roam-directory
 │   ├── tasks/
@@ -174,23 +179,26 @@ repeater 기준일)는 파일에 기록된다. 그래서 클라이언트가 나�
   경로가 없다.
 - 요청은 process filter 밖(`run-at-time 0`)에서 처리한다.
 - Emacs 기본 `server-start` socket은 컨테이너 내부 `/tmp`에만 존재한다. 이 socket은 eval이 가능하므로
-  공유 volume에 절대 두지 않는다. 디버깅은 `podman exec -it organon-emacs emacsclient -t`로 한다.
+  공유 volume에 절대 두지 않는다. 디버깅은 `podman exec -it organon-engine emacsclient -t`로 한다.
 - 실측: ping 0.6ms, warm agenda 17ms. 한글, 따옴표, `(insert …)` 같은 문자열도 그대로 왕복된다.
 
-### 6.2 변경 공통 래퍼 (`organon--with-entry`)
+### 6.2 변경 공통 래퍼 (`organon-with-entry`)
 
 모든 쓰기 method는 이 래퍼를 통과한다. 각 항목은 스파이크에서 발견한 실제 실패 모드에 대응한다.
 
 1. **프롬프트 차단**: `yes-or-no-p`, `y-or-n-p`, `read-*`, `completing-read`를 즉시 에러로
    바꾼다(`code: "prompt_blocked"`). headless 데몬이 프롬프트에서 멈추면 API 전체가 멈추기 때문이다.
+   네이티브 컴파일된 호출자(Debian의 `files.el` 등)에도 적용되도록 C primitive의 trampoline을 이미지
+   빌드 때 만든다.
 2. **외부 변경 감지**: `revert-without-query`를 쓴다. buffer가 깨끗하면 조용히 revert하고, 저장 안 된
    변경이 있으면 `conflict`를 반환한다. `find-file-noselect`가 스스로 프롬프트를 띄우기 때문이다(실측).
-3. **대상 찾기**: ID로 위치를 찾는다(org-roam DB → 파일 안에서 `:ID:` 재확인 → 실패하면 rescan → `not_found`).
+3. **대상 찾기**: ID로 위치를 찾는다(org-id 인덱스 → 파일 안에서 `:ID:` 재확인 → 실패하면, 마지막 스캔 이후
+   파일이 바뀐 경우에만 rescan → `not_found`).
 4. **Org API로 변경**: `org-todo`, `org-deadline`, `org-schedule`, `org-set-tags`, `org-id-get-create`
    등을 쓴다. regex로 파일을 고치지 않는다.
 5. **LOGBOOK flush**: `post-command-hook`에 걸린 `org-add-log-note`를 직접 실행한다. command loop가
    없으면 상태 변경 로그가 **조용히 누락**되기 때문이다(실측).
-6. **저장**: `save-buffer` + `file-precious-flag`(temp 파일에 쓴 뒤 rename)로 저장한다. 그러면
+6. **저장**: `save-buffer` + `file-precious-flag`(temp 파일에 쓰고 fsync한 뒤 rename)로 저장한다. 그러면
    after-save-hook에서 그 파일을 org-roam 인덱스에 반영한다(`org-roam-db-update-file`, 실측 0.03s).
    `org-roam-db-autosync-mode`는 켜지 않는다. 이 모드는 primitive(`rename-file`, `delete-file`)에
    advice를 걸고, 훅 안의 에러가 `save-buffer` 밖으로 나와 성공한 저장을 실패로 보이게 한다.
@@ -269,7 +277,7 @@ TODO ─▶ NEXT ─▶ DOING ─▶ DONE
 
 모든 경로는 `/api/v1` 아래에 있다. 에러 본문은 RFC 9457(problem+json) 형식이다.
 
-### 8.1 MVP-A: Task
+### 8.1 Task와 Project
 
 | method | path | scope | 설명 |
 |---|---|---|---|
@@ -278,12 +286,16 @@ TODO ─▶ NEXT ─▶ DOING ─▶ DONE
 | GET | `/tasks/today?date=` | read | agenda 중 task |
 | GET | `/tasks/overdue?date=` | read | |
 | GET | `/tasks/waiting` | read | |
-| GET | `/tasks/completed?date=` | read | LOGBOOK 기반 |
+| GET | `/tasks/completed?date=` | read | `CLOSED:`와 LOGBOOK 기반 |
+| GET | `/tasks?state=&project=&tag=` | read | 날짜와 무관한 목록. 기본은 열린 상태 |
 | GET | `/tasks/{id}` | read | |
 | POST | `/tasks` | tasks:write | 생성. `Idempotency-Key` 지원 |
-| POST | `/tasks/{id}/{start,wait,complete,skip,cancel}` | tasks:write | body: `{"expected_state":"NEXT"}` 필수 |
+| PATCH | `/tasks/{id}` | tasks:write | 편집. `expected_version` 필수 |
+| POST | `/tasks/{id}/{start,wait,complete,skip,cancel,todo,next}` | tasks:write | body: `{"expected_state":"NEXT"}` 필수 |
+| GET | `/projects` | read | |
+| POST | `/projects` | tasks:write | `projects/` 아래 파일 하나. `Idempotency-Key` 지원 |
 
-`date`를 생략하면 `calendar_tz` 기준 오늘이다.
+정확한 형식은 `api/openapi.yaml`이 정한다. `date`를 생략하면 `calendar_tz` 기준 오늘이다.
 
 ### 8.2 MVP-B: Knowledge
 
@@ -300,13 +312,13 @@ TODO ─▶ NEXT ─▶ DOING ─▶ DONE
   재생성 가능한 cache로 추가한다.
 - 링크는 body에 쓴 Org ID 링크(`[[id:<uuid>][label]]`)다. backlinks와 links의 각 항목은
   `{id, title, kind}`이고, `kind`(`node`/`task`)로 어느 endpoint에서 읽을지 알려 준다.
-- `nodes:write`는 `tasks:write`와 별개다. 노트만 쓰는 클라이언트(Hermes 등)가 task를 바꿀 수 없게 하기
-  위해서다.
+- `nodes:write`는 `tasks:write`와 별개다. 노트만 쓰는 클라이언트(AI 에이전트 등)가 task를 바꿀 수 없게
+  하기 위해서다.
 - node 수정·삭제는 아직 없다.
 
 ### 8.3 이후 단계
 
-- `GET/POST /journal/{date}`: org-roam-dailies 사용, append-only, Hermes 초안은 고정 ID heading에 넣고 교체한다.
+- `GET/POST /journal/{date}`: org-roam-dailies 사용, append-only, AI 에이전트의 초안은 고정 ID heading에 넣고 교체한다.
 - `/capture/*`
 - node promotion: `POST /nodes`의 `source` 필드
 
@@ -336,8 +348,10 @@ TODO ─▶ NEXT ─▶ DOING ─▶ DONE
 
 ### 8.5 입력 처리 규칙
 
-- **title**: 한 줄, 제어문자 제거, 최대 500자.
-- **body**: Org 구조로 해석될 수 있는 줄(`*` heading, `#+` keyword, `:DRAWER:`)은 Org 고유의 comma
+- **title**: 한 줄, 최대 500자. 제어문자, priority cookie(`[#A]`), 앞의 `COMMENT`, 끝의 태그 목록은 거부한다.
+- **tags**: 영문자·숫자·`_@#%`만. `ARCHIVE`는 agenda에서 task를 숨기므로 거부한다.
+- **body**: Org 구조로 해석될 수 있는 줄(`*` heading, `#+` keyword, `:DRAWER:`, `CLOCK:`, `%%(`·`&%%(` diary
+  sexp)은 Org 고유의 comma
   escape(`org-escape-code-in-string`)를 적용하고, 읽을 때 되돌린다. active timestamp `<…>`는 inactive
   `[…]`로 바꿔서 agenda에 섞여 들어가지 않게 한다.
 - **ID 경로 인자**: UUID 형식만 받는다. **date**: `YYYY-MM-DD`만 받는다. 파일 경로는 입력으로 받지 않는다.
@@ -346,7 +360,10 @@ TODO ─▶ NEXT ─▶ DOING ─▶ DONE
 ### 8.6 멱등성과 동시성
 
 - 상태 전이 요청은 `expected_state`가 다르면 `409`를 반환한다. 재시도해도 반복 task가 두 회차 밀리지 않는다.
-- `POST /tasks`는 `Idempotency-Key`를 지원한다(API 메모리 LRU, 24시간). 재시작하면 키가 사라진다는 한계를 문서화한다.
+- `POST /tasks`와 `POST /projects`는 `Idempotency-Key`를 지원한다(토큰·endpoint별, 24시간). API는 응답을
+  메모리 LRU에 저장해 그대로 재전송한다. 엔진도 키의 hash와 만든 ID를 메모리에 기억한다. 그래서 API가 엔진을
+  기다리다 포기한(503) 요청을 엔진이 끝까지 처리했더라도, 같은 키로 재시도하면 새로 만들지 않고 그 결과를
+  돌려준다. 엔진이 재시작하면 엔진 쪽 키는 사라진다.
 - 쓰기는 Emacs 안에서 직렬화된다. RPC timeout(기본 10초)이 나면 `503`을 반환한다.
 
 | RPC error code | HTTP |
@@ -360,11 +377,11 @@ TODO ─▶ NEXT ─▶ DOING ─▶ DONE
 ## 9. 보안 경계
 
 ```
-[Internet] ─▶ Cloudflare edge (+ Access, 배포 선택)
-   ─▶ cloudflared (앱 network) ─▶ organon-api :8080  ← 경계 1: 인증·scope·검증
+[Internet] ─▶ TLS 종료 reverse proxy 또는 터널 (배포 선택)
+   ─▶ organon-api :8080                             ← 경계 1: 인증·scope·검증
    ─▶ rpc.sock                                      ← 경계 2: 화이트리스트 method
-   ─▶ organon-emacs (Network=none)                  ← 경계 3: Emacs 하드닝(§6.3)
-   ─▶ /srv/personal
+   ─▶ organon-engine (Network=none)                  ← 경계 3: Emacs 하드닝(§6.3)
+   ─▶ <data>
 ```
 
 | 위협 | 대응 |
@@ -375,11 +392,12 @@ TODO ─▶ NEXT ─▶ DOING ─▶ DONE
 | capture template eval | 사용자 입력을 template 문자열로 쓰지 않음 |
 | path traversal | 경로 입력 없음. ID와 날짜는 형식 검증 |
 | 토큰 유출 | 토큰은 SHA-256 해시로만 저장, scope 분리, 상수 시간 비교, 실패 rate limit |
-| Hermes prompt injection | Hermes 토큰은 `read` + `journal:write`(이후 단계)로 제한. task 상태 변경 권한 없음 |
+| AI 에이전트 prompt injection | 에이전트 토큰은 `read` + `journal:write`(이후 단계)로 제한. task 상태 변경 권한 없음 |
 | Emacs 컨테이너 탈출 경로 | `Network=none`, read-only rootfs, `--cap-drop all`, rootless + `keep-id` |
 
 - 오픈소스 기본값: API는 `127.0.0.1`에 bind하고, 토큰 없이는 어떤 endpoint도 응답하지 않는다(`/healthz` 제외).
-- TLS는 앞단(Cloudflare tunnel 또는 reverse proxy)에서 종료한다.
+- TLS는 앞단(reverse proxy나 터널: Caddy, Cloudflare Tunnel, Tailscale 등)에서 종료한다. 프록시 뒤에서는
+  `ORGANON_CLIENT_IP_HEADER`로 실제 클라이언트 주소를 받아 실패 rate limit에 쓴다.
 
 ## 10. 컨테이너와 스토리지
 
@@ -395,8 +413,10 @@ FROM debian:trixie-slim             → emacs-nox, elpa-org-roam (apt 고정), o
 
 - 패키지는 Debian 패키지로 고정한다. 런타임에 MELPA나 네트워크에 접근하지 않는다.
 - `emacs -Q`는 Debian elpa 패키지를 로드하지 못하므로 `-q`와 명시적 init을 쓴다(실측).
-- native-comp는 빌드 시 AOT로 한다. 그러지 않으면 기동할 때마다 JIT가 반복된다(실측).
-- 공개 배포: GHCR에 multi-arch(amd64, arm64) 이미지를 올린다.
+- native-comp는 빌드 시 AOT로 한다(프롬프트 차단용 trampoline 포함). 그러지 않으면 기동할 때마다 JIT가
+  반복된다(실측).
+- 공개 배포: `main`의 커밋이 CI를 통과하면 GHCR에 multi-arch(amd64, arm64) 이미지를 `:main`과 `:sha-<7>`
+  태그로 올린다. 릴리스 태그는 아직 없다.
 
 #### 이미지 중립 요구사항
 
@@ -405,7 +425,7 @@ FROM debian:trixie-slim             → emacs-nox, elpa-org-roam (apt 고정), o
 1. **임의의 non-root UID로 실행된다.** 고정 사용자나 홈 디렉터리를 가정하지 않는다. 쓰기 가능한 경로는
    데이터, cache, run 세 곳뿐이고 모두 환경변수로 지정한다.
 2. **read-only rootfs**에서 동작한다.
-3. `organon-emacs`는 **네트워크 없이**(lo만) 동작한다.
+3. `organon-engine`는 **네트워크 없이**(lo만) 동작한다.
 4. 두 컨테이너가 named volume의 Unix socket으로 통신한다. 같은 UID로 실행된다는 것만 가정한다.
 5. healthcheck는 Dockerfile `HEALTHCHECK`에 의존하지 않는다(podman이 OCI 형식으로 빌드하면 버림).
    각 배포 정의가 `organon healthcheck` / `organon rpc-ping`을 명시한다.
@@ -415,7 +435,7 @@ FROM debian:trixie-slim             → emacs-nox, elpa-org-roam (apt 고정), o
 
 | 정의 | 위치 | 지원 수준 |
 |---|---|---|
-| **Docker Compose** | `compose.yaml` | **공식 지원.** README의 기본 설치 경로 |
+| **Docker Compose** | `compose.yaml` | **공식 지원.** README와 `docs/deployment.md`의 기본 설치 경로 |
 | Podman Quadlet | `contrib/quadlet/` | 예시. "메인테이너가 실제로 쓰는 구성"이지만 지원은 약속하지 않음 |
 
 Quadlet을 예시로 두는 이유: 셀프호스팅 프로젝트의 사실상 표준은 Compose다. GitHub 코드 검색으로
@@ -425,11 +445,11 @@ e2e로 계속 검증한다**(§16).
 
 ### 10.3 컨테이너
 
-| | `organon-emacs` | `organon-api` |
+| | `organon-engine` | `organon-api` |
 |---|---|---|
-| Exec | `emacs -q --fg-daemon -l /opt/organon/init.el` | `organon serve` |
+| Exec | `emacs -q --fg-daemon -l /opt/organon/emacs/init.el -f organon-start` | `organon serve` |
 | Network | 없음 (Compose `network_mode: none` / Quadlet `Network=none`) | 앱 network |
-| 데이터 (`/srv/personal`) | rw bind | **mount 없음** |
+| 데이터 (`<data>`) | rw bind | **mount 없음** |
 | `organon-cache` volume | rw | — |
 | `organon-run` volume | rw (socket 생성) | rw (socket 연결) |
 | 토큰 | — | secret 파일 (Compose `secrets` / podman secret) |
@@ -460,13 +480,13 @@ e2e로 계속 검증한다**(§16).
 | org-roam DB 손상/삭제 | 기동할 때 sync로 재구축한다(1,000 노트 기준 약 25초, health start period 안). 열거나 읽을 수 없는 DB는 지우고 한 번 더 재구축한다. 그래도 실패하면 task는 계속 동작하고 node 조회만 `internal` 에러 |
 | 엔진 실행 중 외부 파일 변경 (node) | 다음 node 조회 직전에 바뀐 파일만 재색인. 재기동 불필요 |
 | API 재시작 | Idempotency 캐시만 사라지고, 상태 전이는 `expected_state`로 보호됨 |
-| 컨테이너/volume 전부 삭제 | `/srv/personal`만으로 재기동 (Acceptance 8) |
-| **비상 수동 편집** | `organon-emacs`를 정지 → 파일 편집 → 기동. 기동할 때 파일을 새로 읽고 sync함 |
+| 컨테이너/volume 전부 삭제 | `<data>`만으로 재기동 (Acceptance 8) |
+| **비상 수동 편집** | `organon-engine`를 정지 → 파일 편집 → 기동. 기동할 때 파일을 새로 읽고 sync함 |
 | 데이터 손실 | restic 복원(§11) |
 
 ## 11. 백업
 
-- 대상: `/srv/personal` 전체(org, attachments, `organon.json`). cache는 제외한다.
+- 대상: `<data>` 전체(org, attachments, `organon.json`). cache는 제외한다.
 - 방식: **restic**(스냅샷을 지원하지 않는 파일시스템이어도 동작), 일 단위, 저장소는 반드시 호스트 밖(off-site)에 둔다.
 - 일관성: 파일 단위 저장이 atomic rename이므로 파일 하나가 깨진 상태로 백업되지는 않는다. 여러 파일에
   걸친 변경은 §6.2-8의 순서 덕분에 "중복은 가능, 손실은 불가"다.
@@ -474,20 +494,20 @@ e2e로 계속 검증한다**(§16).
 - Git은 데이터 history로 쓰지 않는다. 코드, Emacs 설정, 배포 설정에만 쓴다.
 - 백업 timer 자체는 배포하는 쪽의 인프라에서 구현한다(이 저장소의 범위 밖).
 
-## 12. Hermes 연동 (향후)
+## 12. AI 에이전트 연동 (향후)
 
 원칙: **Facts → deterministic code, Narrative → LLM.**
 
-- **Morning brief** (UTC cron): `GET /tasks/today`, `/overdue`, `/waiting` → Hermes가 요약한다. 우선순위와
+- **Morning brief** (UTC cron): `GET /tasks/today`, `/overdue`, `/waiting` → 에이전트가 요약한다. 우선순위와
   마감 판단은 API가 준 사실을 그대로 쓴다.
 - **/day-close** (사용자 trigger): completed, 남은 task, 오늘 변경한 node(이후 단계: node 단위 변경 추적은
   재생성 가능한 hash cache가 필요함)를 조회하고 → 초안을 만들어 → `POST /journal/{date}`로 쓴다. 초안은
   고정 heading에만 쓰고, 사람이 쓴 내용은 덮어쓰지 않는다.
-- **Knowledge promotion**: Hermes가 후보만 제시하고, 사용자가 [생성 / 병합 / 무시]를 고른다. 생성은
+- **Knowledge promotion**: 에이전트가 후보만 제시하고, 사용자가 [생성 / 병합 / 무시]를 고른다. 생성은
   `POST /nodes` + `source`(journal 원문 링크)로 한다.
-- 캘린더와 Git activity는 Hermes가 각 출처에서 직접 조회한다. Organon은 캘린더가 아니다.
-- Hermes가 MCP를 지원하면 이 API 위에 얇은 MCP adapter를 둔다(같은 토큰 scope 적용).
-- 접속 경로는 공개 호스트명 + 토큰 + Access service token이다. WireGuard는 선택 사항이다.
+- 캘린더와 Git activity는 에이전트가 각 출처에서 직접 조회한다. Organon은 캘린더가 아니다.
+- 에이전트가 MCP를 쓰면 이 API 위에 얇은 MCP adapter를 둔다(같은 토큰 scope 적용).
+- 에이전트도 다른 클라이언트와 같은 경로(앞단 프록시 + 토큰)로 접속한다.
 
 ## 13. 기술 선택
 
@@ -513,19 +533,19 @@ organon/
 ├── openspec/                  동작 계약 (config.yaml, specs/, changes/)
 ├── emacs/
 │   ├── init.el                전역 설정(§6.3, §7.1)
+│   ├── site-start.el, build.el  런타임 JIT 차단, AOT 컴파일
 │   ├── organon.el             RPC 서버 + dispatch + 변경 래퍼
-│   ├── organon-task.el
-│   ├── organon-node.el
+│   ├── organon-task.el        task·project method
 │   └── test/                  ERT
 ├── api/                       Go module
 │   ├── openapi.yaml           HTTP 계약
-│   ├── cmd/organon/           serve | healthcheck | rpc-ping | init
-│   └── internal/{rpc,httpapi,auth,model}
+│   ├── cmd/organon/           serve | healthcheck | rpc-ping | init | token | CLI 명령
+│   └── internal/{rpc,httpapi,auth,idem,instance,model,client,cli}
 ├── container/Containerfile
 ├── contrib/quadlet/           Podman Quadlet 예시
-├── scripts/                   e2e.sh (--runtime compose|podman), dev-run.sh
+├── scripts/                   e2e.sh (--runtime compose|podman), test-elisp.sh, check-openspec-archived.sh
 ├── tests/fixtures/            고정 org 트리 + golden 결과
-└── .github/workflows/         L2 CI
+└── .github/workflows/         L2 CI, main 이미지 publish
 ```
 
 ## 15. MVP 범위와 Acceptance
@@ -533,8 +553,9 @@ organon/
 | 단계 | 내용 | Acceptance |
 |---|---|---|
 | **MVP-A** | RPC, task 조회/생성/전이, repeater, agenda, 컨테이너, bind mount, 영속성 | S1 생성, S2 반복, S3 Today, S4 완료, S8 재생성 |
+| task-essentials | task 편집, 목록·필터, 프로젝트 생성·목록, 재개(`todo`/`next`), CLI | `openspec/specs/{task-listing,projects,cli}` |
 | **MVP-B** | org-roam node 생성/조회/검색/backlink, 재구축 | S5 node, S6 backlink, S7 재구축, S8 재확인 |
-| 이후 | journal, capture, completed 고도화, 전문 검색, Hermes, 메인테이너 인프라 배포, restic | — |
+| 이후 | journal, capture, completed 고도화, 전문 검색, AI 에이전트 연동, 메인테이너 인프라 배포, restic | — |
 
 검증 기준(요약):
 
@@ -543,7 +564,7 @@ organon/
 - **S3**: 고정 날짜에서 scheduled, past-scheduled, deadline(지난 것), upcoming-deadline, 완료 항목 제외,
   하위 디렉터리 project task 포함을 확인한다.
 - **S7**: DB 삭제 전후의 node 수, link 수, 특정 backlink 집합이 같아야 한다.
-- **S8**: 컨테이너와 volume 삭제 전후의 `/srv/personal` sha256 manifest가 같고, API 결과도 같아야 한다.
+- **S8**: 컨테이너와 volume 삭제 전후의 `<data>` sha256 manifest가 같고, API 결과도 같아야 한다.
 
 ## 16. 테스트 전략
 

@@ -33,6 +33,14 @@ a code tree that already passed, which holds only if every file the archive comm
 even a comment change in `emacs/` or `api/` changes the tree and re-runs everything. Working alone, you can
 push the archive together with the last code commit.
 
+Custom deployments rely on the container interface in `contrib/container-interface.json`: commands, health
+checks, mounts and environment variables. If you change it:
+- update `compose.yaml`, `contrib/quadlet/` and `docs/deployment.md` with it
+  (`mise run check:deploy-interface` checks the first two)
+- mark the pull request as breaking: `!` in the title (`feat(deploy)!: …`) and the `breaking` label
+
+CI fails if the marker is missing.
+
 Pull requests are merged with a merge commit; squash and rebase merges are turned off. The commits of a pull
 request therefore land as they are, so make each one meaningful (proposal, implementation, archive) rather
 than squashing them yourself. `git log --first-parent main` shows one entry per pull request, and
@@ -52,7 +60,7 @@ that names it, either in a docstring (Elisp) or a comment (Go). Design rationale
 | Level | Who | What |
 |---|---|---|
 | **L1** | you, before opening a PR | the commands below |
-| **L2** | CI, required to merge (`required checks` and `openspec: changes archived`) | specs + finished changes archived + OpenAPI lint + generated-type drift check + Quadlet dry run, unit tests (with the race detector) and ERT on amd64 and arm64, e2e under Docker Compose and rootless Podman (also as UID 12345) |
+| **L2** | CI, required to merge (`required checks` and `openspec: changes archived`) | specs + finished changes archived + OpenAPI lint + generated-type drift check + Quadlet dry run + deployment interface check, unit tests (with the race detector) and ERT on amd64 and arm64, e2e under Docker Compose and rootless Podman (also as UID 12345) |
 | **L3** | maintainer, before a release | real deployment with Quadlet + systemd |
 
 You don't need Podman, systemd or an arm64 machine: if L1 passes and CI is green, you're done.

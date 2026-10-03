@@ -58,6 +58,8 @@ Modules that keep state per instance (the org-roam index) reset it here.")
   "Functions run by `organon-start' after a successful configuration, before
 the socket listens: the engine reports healthy only once they are done.")
 
+(defvar organon--idempotency)           ; defined under "Idempotent creation"
+
 (defun organon-configure (data-dir cache-dir run-dir)
   "Point the engine at DATA-DIR, CACHE-DIR and RUN-DIR and load organon.json."
   (setq organon-data-dir (file-name-as-directory (expand-file-name data-dir))
@@ -68,6 +70,8 @@ the socket listens: the engine reports healthy only once they are done.")
   (setq org-id-locations-file (expand-file-name "org-id-locations" organon-cache-dir)
         org-id-locations nil
         org-id-files nil)
+  ;; Keys belong to an instance.
+  (clrhash organon--idempotency)
   (organon-load-config)
   (run-hooks 'organon-configure-hook))
 
@@ -275,6 +279,70 @@ that check every unknown ID would re-read the whole org directory."
         (organon-update-id-locations)
         (organon--find-id-1 id))
       (organon-signal "not_found" (format "no entry with id %s" id))))
+
+;;;; Idempotent creation
+
+(defvar organon--idempotency (make-hash-table :test #'equal)
+  "Recent keyed creates: idempotency key -> (FINGERPRINT ID CREATED).
+Kept in memory only, so the keys survive API restarts and API timeouts but not
+an engine restart.")
+
+(defconst organon-idempotency-ttl (* 24 60 60)
+  "Seconds a key is remembered, as long as the API remembers responses.")
+
+(defconst organon-idempotency-max 10000
+  "Most keys remembered at once; the oldest are forgotten first.")
+
+(defun organon--param-hex (params key &optional required)
+  "Value of KEY in PARAMS, which must be 64 lowercase hex digits."
+  (let ((value (organon-param-string params key required)))
+    (when (and value (not (let ((case-fold-search nil))
+                             (string-match-p "\\`[0-9a-f]\\{64\\}\\'" value))))
+      (organon-signal "invalid" (format "%s must be 64 lowercase hex digits" key)))
+    value))
+
+(defun organon--remember-create (key fingerprint id)
+  (let ((now (current-time)) oldest)
+    (maphash (lambda (k entry)
+               (if (> (float-time (time-subtract now (nth 2 entry))) organon-idempotency-ttl)
+                   (remhash k organon--idempotency)
+                 (when (or (null oldest)
+                           (time-less-p (nth 2 entry) (nth 2 (gethash oldest organon--idempotency))))
+                   (setq oldest k))))
+             organon--idempotency)
+    (when (and oldest (>= (hash-table-count organon--idempotency) organon-idempotency-max))
+      (remhash oldest organon--idempotency))
+    (puthash key (list fingerprint id now) organon--idempotency)))
+
+(defun organon-idempotent (params create replay)
+  "Call CREATE at most once per idempotency key in PARAMS and return its result.
+The API passes `idempotency_key' and `idempotency_fingerprint' (hashes of the
+client's key and of the payload).  CREATE returns a JSON alist with an `id'.
+For a key seen before with the same fingerprint, REPLAY is called with the ID
+it created instead; with another fingerprint the request is invalid.  This
+covers retries after the API stopped waiting for a create the engine still
+completed."
+  (let* ((key (organon--param-hex params 'idempotency_key))
+         (fingerprint (and key (organon--param-hex params 'idempotency_fingerprint t)))
+         (entry (and key (gethash key organon--idempotency))))
+    (when (and entry (> (float-time (time-since (nth 2 entry))) organon-idempotency-ttl))
+      (remhash key organon--idempotency)
+      (setq entry nil))
+    (when (and entry (not (equal (car entry) fingerprint)))
+      (organon-signal "invalid" "Idempotency-Key was already used with a different request body"))
+    (or (and entry
+             ;; The entry may be gone; then forget the key and create anew.
+             (condition-case err
+                 (funcall replay (nth 1 entry))
+               (organon-error
+                (unless (equal (nth 1 err) "not_found")
+                  (signal (car err) (cdr err)))
+                (remhash key organon--idempotency)
+                nil)))
+        (let ((result (funcall create)))
+          (when key
+            (organon--remember-create key fingerprint (alist-get 'id result)))
+          result))))
 
 (defmacro organon-with-entry (id &rest body)
   "Run BODY with point on the heading whose ID is ID, then save the file.

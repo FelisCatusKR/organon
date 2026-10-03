@@ -18,6 +18,13 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+# Commands and health checks come from the declared container interface, so the
+# Podman run also checks the image against it (compose.yaml is checked against
+# it by scripts/check-deploy-interface.sh).
+iface="$root/contrib/container-interface.json"
+mapfile -t engine_cmd < <(jq -r '.engine.command[]' "$iface")
+mapfile -t engine_health < <(jq -r '.engine.healthcheck[]' "$iface")
+mapfile -t api_cmd < <(jq -r '.api.command[]' "$iface")
 work_base="$root/tests/e2e/.work"
 state_file="$work_base/state"
 
@@ -68,8 +75,8 @@ start_engine() {
   podman run -d --name organon-e2e-engine "$(podman_userns)" \
     --network none --read-only --tmpfs /tmp --cap-drop all --security-opt no-new-privileges \
     -v "$work/data:/data:Z" -v organon-e2e-cache:/cache -v organon-e2e-run:/run/organon \
-    --health-cmd "organon rpc-ping" --health-interval 2s --health-start-period 120s \
-    "$image" emacs -q --fg-daemon -l /opt/organon/emacs/init.el -f organon-start >/dev/null
+    --health-cmd "${engine_health[*]}" --health-interval 2s --health-start-period 120s \
+    "$image" "${engine_cmd[@]}" >/dev/null
 }
 
 start_api() {
@@ -78,12 +85,12 @@ start_api() {
     --read-only --cap-drop all --security-opt no-new-privileges \
     -e ORGANON_LISTEN=0.0.0.0:8080 -e ORGANON_TOKENS_FILE=/tokens -e ORGANON_ENGINE_TIMEOUT=10s \
     -v "$work/tokens:/tokens:ro,Z" -v organon-e2e-run:/run/organon -p "127.0.0.1:$port:8080" \
-    "$image" organon serve >/dev/null
+    "$image" "${api_cmd[@]}" >/dev/null
 }
 
 wait_engine() {
   local deadline=$((SECONDS + 180))
-  until cli exec "$(engine_name)" organon rpc-ping >/dev/null 2>&1; do
+  until cli exec "$(engine_name)" "${engine_health[@]}" >/dev/null 2>&1; do
     (( SECONDS < deadline )) || { echo "engine did not become healthy" >&2; cli logs "$(engine_name)" | tail -20 >&2; return 1; }
     sleep 1
   done

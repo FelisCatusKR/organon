@@ -8,7 +8,7 @@
 //	organon token hash                    print the SHA-256 of a token read from stdin
 //	organon version
 //
-// Configuration comes from the environment (see README):
+// Configuration comes from the environment (see docs/deployment.md):
 //
 //	ORGANON_LISTEN            address for serve (default 127.0.0.1:8080)
 //	ORGANON_RUN_DIR           directory holding rpc.sock (default /run/organon)

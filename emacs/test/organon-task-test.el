@@ -230,6 +230,41 @@
         (should (assq 'task (aref entries 0)))
         (should-not (alist-get 'task (aref entries 0)))))))
 
+(ert-deftest organon-task/repeated-key-creates-once ()
+  "task-lifecycle: Retry after an engine timeout (engine level: the API forgot the key)."
+  (organon-test-with-instance "basic" organon-test-clock
+    (let* ((key (make-string 64 ?a))
+           (params `((title . "Once") (idempotency_key . ,key)
+                     (idempotency_fingerprint . ,(make-string 64 ?b))))
+           (first (organon-test-result "task.create" params))
+           (again (organon-test-result "task.create" params)))
+      (should (equal (alist-get 'id again) (alist-get 'id first)))
+      (should (= (organon-test-heading-count "org/tasks/inbox.org") 1))
+      ;; Same key, other payload.
+      (should (equal (organon-test-error-code
+                      "task.create" `((title . "Other") (idempotency_key . ,key)
+                                      (idempotency_fingerprint . ,(make-string 64 ?c))))
+                     "invalid"))
+      (should (equal (organon-test-error-code
+                      "task.create" '((title . "Bad key") (idempotency_key . "not-hex")
+                                      (idempotency_fingerprint . "x")))
+                     "invalid"))
+      (should (= (organon-test-heading-count "org/tasks/inbox.org") 1))
+      ;; Without a key, creates are not deduplicated.
+      (organon-test-result "task.create" '((title . "Once")))
+      (should (= (organon-test-heading-count "org/tasks/inbox.org") 2)))))
+
+(ert-deftest organon-task/repeated-key-creates-one-project ()
+  "projects: Retried creation (engine level)."
+  (organon-test-with-instance "basic" organon-test-clock
+    (let* ((params `((title . "Garden") (idempotency_key . ,(make-string 64 ?d))
+                     (idempotency_fingerprint . ,(make-string 64 ?e))))
+           (first (organon-test-result "project.create" params))
+           (again (organon-test-result "project.create" params)))
+      (should (equal (alist-get 'id again) (alist-get 'id first)))
+      (should (equal (alist-get 'title again) "Garden"))
+      (should (= (length (organon-org-files "projects")) 1)))))
+
 (ert-deftest organon-task/unknown-ids-rescan-only-after-changes ()
   "Repeated lookups of unknown IDs do not re-read the org directory each time."
   (organon-test-with-instance "tasks" organon-test-clock

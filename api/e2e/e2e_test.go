@@ -209,6 +209,29 @@ func TestPausedEngineGives503ThenRecovers(t *testing.T) {
 	mustStatus(t, api(t, "GET", "/api/v1/tasks/today", nil), 200)
 }
 
+// task-lifecycle: Retry after an engine timeout
+func TestRetryAfterEngineTimeoutCreatesOnce(t *testing.T) {
+	const title = "Created while the engine was paused"
+	body := map[string]any{"title": title}
+	// The API gives up after ORGANON_ENGINE_TIMEOUT, but the request is already
+	// queued at the engine, which completes it once it runs again.
+	ctl(t, "pause-engine")
+	first := api(t, "POST", "/api/v1/tasks", body, "Idempotency-Key", "e2e-engine-timeout")
+	ctl(t, "unpause-engine")
+	mustStatus(t, first, 503)
+
+	retry := api(t, "POST", "/api/v1/tasks", body, "Idempotency-Key", "e2e-engine-timeout")
+	mustStatus(t, retry, 201)
+	if n := strings.Count(readData(t, "org/tasks/inbox.org"), title); n != 1 {
+		t.Fatalf("%d headings titled %q", n, title)
+	}
+	got := api(t, "GET", "/api/v1/tasks/"+retry.Body["id"].(string), nil)
+	mustStatus(t, got, 200)
+	if got.Body["title"] != title {
+		t.Fatalf("got %s", got.Raw)
+	}
+}
+
 // ---- 8.4 deployment ---------------------------------------------------------------
 
 // deployment: Network disabled

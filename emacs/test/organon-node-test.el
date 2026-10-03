@@ -261,6 +261,17 @@ stale buffer is re-read rather than indexed."
       (should (equal (organon-test-error-code "node.create" `((title . "ok") (aliases . [,link]))) "invalid"))
       (should (equal (directory-files (organon-test-file "org/knowledge/")) before)))))
 
+(ert-deftest organon-node/retried-creation ()
+  "knowledge-nodes: Retried creation (engine side: a retry after an API timeout)."
+  (organon-test-with-knowledge
+    (let* ((params `((title . "Once") (idempotency_key . ,(make-string 64 ?a))
+                     (idempotency_fingerprint . ,(make-string 64 ?b))))
+           (first (organon-test-result "node.create" params))
+           (second (organon-test-result "node.create" params)))
+      (should (equal first second))
+      (should (equal (directory-files (organon-test-file "org/knowledge/") nil "once")
+                     '("20261002142900-once.org"))))))
+
 ;;;; 1.5 node.get
 
 (ert-deftest organon-node/read-a-created-node ()

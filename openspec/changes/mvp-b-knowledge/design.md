@@ -130,7 +130,8 @@ include them: archived notes keep their IDs and the links they carry.
 - `POST /api/v1/nodes` (`nodes:write`):
   - body `CreateNode {title, body?, tags?, aliases?}`
   - `201` with `Location: /api/v1/nodes/{id}`
-  - `Idempotency-Key` through the existing `beginIdempotent`
+  - `Idempotency-Key` like tasks and projects: `beginIdempotent` in the API, `organon-idempotent` in the
+    engine (so a retry after an engine timeout creates the node once)
 - `GET /api/v1/nodes?q=&tag=` (`read`): `q` at most 200 characters without control characters; `tag` with the
   task tag pattern. Both are validated in Go before the engine is called. Returns `NodeList` of `NodeSummary`.
 - `GET /api/v1/nodes/{id}` (`read`): `Node`. `{id}` must be a lowercase UUID.

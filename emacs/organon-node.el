@@ -294,7 +294,7 @@ bytes, well below the usual 255-byte limit.")
             candidate (expand-file-name (format "%s-%d.org" stem n) dir)))
     candidate))
 
-(organon-defmethod "node.create" (params)
+(defun organon--node-create (params)
   "Create a knowledge node: a new file under knowledge/ with a file-level ID."
   (let* ((title (organon--clean-node-line (organon-param params 'title t) "title"))
          (body (organon--param-body params))
@@ -321,6 +321,12 @@ bytes, well below the usual 255-byte limit.")
           (organon-signal "internal" (format "saved %s, but org-roam could not index it"
                                              (organon-relative-path file))))
         (organon--node-json node t)))))
+
+(organon-defmethod "node.create" (params)
+  "Create a node; a repeated idempotency key returns the node it created."
+  (organon-idempotent params
+                      (lambda () (organon--node-create params))
+                      (lambda (id) (organon--node-json (organon--node id) t))))
 
 ;;;; Queries
 

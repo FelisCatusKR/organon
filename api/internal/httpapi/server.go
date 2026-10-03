@@ -411,15 +411,15 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	storeKey, handled := s.beginIdempotent(w, r, req)
+	keyed, handled := s.beginIdempotent(w, r, req)
 	if handled {
 		return
 	}
 
 	var task model.Task
-	if err := s.Engine.Call(r.Context(), "task.create", req, &task); err != nil {
-		if storeKey != "" {
-			s.Idempotency.Abort(storeKey)
+	if err := s.Engine.Call(r.Context(), "task.create", keyed.engineParams(req), &task); err != nil {
+		if keyed.storeKey != "" {
+			s.Idempotency.Abort(keyed.storeKey)
 		}
 		s.writeEngineError(w, r, err)
 		return
@@ -428,8 +428,8 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	location := "/api/v1/tasks/" + task.ID
 	w.Header().Set("Location", location)
 	body := writeJSON(w, http.StatusCreated, task)
-	if storeKey != "" {
-		s.Idempotency.Finish(storeKey, idem.Response{Status: http.StatusCreated, Body: body, Location: location})
+	if keyed.storeKey != "" {
+		s.Idempotency.Finish(keyed.storeKey, idem.Response{Status: http.StatusCreated, Body: body, Location: location})
 	}
 }
 
@@ -603,43 +603,67 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	if _, ok := decodeBody(w, r, &req); !ok {
 		return
 	}
-	storeKey, handled := s.beginIdempotent(w, r, req)
+	keyed, handled := s.beginIdempotent(w, r, req)
 	if handled {
 		return
 	}
 	var project model.Project
-	if err := s.Engine.Call(r.Context(), "project.create", req, &project); err != nil {
-		if storeKey != "" {
-			s.Idempotency.Abort(storeKey)
+	if err := s.Engine.Call(r.Context(), "project.create", keyed.engineParams(req), &project); err != nil {
+		if keyed.storeKey != "" {
+			s.Idempotency.Abort(keyed.storeKey)
 		}
 		s.writeEngineError(w, r, err)
 		return
 	}
 	body := writeJSON(w, http.StatusCreated, project)
-	if storeKey != "" {
-		s.Idempotency.Finish(storeKey, idem.Response{Status: http.StatusCreated, Body: body})
+	if keyed.storeKey != "" {
+		s.Idempotency.Finish(keyed.storeKey, idem.Response{Status: http.StatusCreated, Body: body})
 	}
 }
 
+// idempotentCreate is a create request carrying an Idempotency-Key.
+type idempotentCreate struct {
+	storeKey    string // key in the API's response store
+	fingerprint string // hash of the request body
+}
+
+// engineParams is req as engine params, plus the key and fingerprint so that
+// the engine can deduplicate creates the API gave up waiting for (the engine
+// may still complete them). The engine sees only hashes, never the token name
+// or the client's key.
+func (c idempotentCreate) engineParams(req any) any {
+	if c.storeKey == "" {
+		return req
+	}
+	raw, _ := json.Marshal(req)
+	params := map[string]any{}
+	json.Unmarshal(raw, &params)
+	key := sha256.Sum256([]byte(c.storeKey))
+	params["idempotency_key"] = hex.EncodeToString(key[:])
+	params["idempotency_fingerprint"] = c.fingerprint
+	return params
+}
+
 // beginIdempotent handles the Idempotency-Key header of a create request
-// whose decoded body is req. It returns the store key to Finish or Abort
-// ("" without a header), or handled=true when it already answered: a replay
-// of the stored response, a key reused with another body, or a request with
-// the same key still in progress. Keys are scoped per token and endpoint.
-func (s *Server) beginIdempotent(w http.ResponseWriter, r *http.Request, req any) (string, bool) {
+// whose decoded body is req. It returns the request's key (empty without a
+// header) to Finish or Abort, or handled=true when it already answered: a
+// replay of the stored response, a key reused with another body, or a request
+// with the same key still in progress. Keys are scoped per token and endpoint.
+func (s *Server) beginIdempotent(w http.ResponseWriter, r *http.Request, req any) (idempotentCreate, bool) {
 	key := r.Header.Get("Idempotency-Key")
 	if key == "" {
-		return "", false
+		return idempotentCreate{}, false
 	}
 	if len(key) > 200 {
 		invalid(w, "Idempotency-Key must be at most 200 characters")
-		return "", true
+		return idempotentCreate{}, true
 	}
 	canonical, _ := json.Marshal(req)
 	sum := sha256.Sum256(canonical)
 	tok := r.Context().Value(tokenKey{}).(*auth.Token)
 	storeKey := tok.Name + "\x00" + r.URL.Path + "\x00" + key
-	switch outcome, stored := s.Idempotency.Begin(storeKey, hex.EncodeToString(sum[:])); outcome {
+	fingerprint := hex.EncodeToString(sum[:])
+	switch outcome, stored := s.Idempotency.Begin(storeKey, fingerprint); outcome {
 	case idem.Replay:
 		w.Header().Set("Content-Type", "application/json")
 		if stored.Location != "" {
@@ -648,15 +672,15 @@ func (s *Server) beginIdempotent(w http.ResponseWriter, r *http.Request, req any
 		w.Header().Set("Idempotent-Replayed", "true")
 		w.WriteHeader(stored.Status)
 		w.Write(stored.Body)
-		return "", true
+		return idempotentCreate{}, true
 	case idem.Mismatch:
 		invalid(w, "Idempotency-Key was already used with a different request body")
-		return "", true
+		return idempotentCreate{}, true
 	case idem.InProgress:
 		writeProblem(w, http.StatusConflict, model.ProblemCodeConflict, "a request with this Idempotency-Key is in progress", nil)
-		return "", true
+		return idempotentCreate{}, true
 	}
-	return storeKey, false
+	return idempotentCreate{storeKey, fingerprint}, false
 }
 
 // ---- knowledge nodes ---------------------------------------------------------------
@@ -718,14 +742,14 @@ func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
 	if _, ok := decodeBody(w, r, &req); !ok {
 		return
 	}
-	storeKey, handled := s.beginIdempotent(w, r, req)
+	keyed, handled := s.beginIdempotent(w, r, req)
 	if handled {
 		return
 	}
 	var node model.Node
-	if err := s.Engine.Call(r.Context(), "node.create", req, &node); err != nil {
-		if storeKey != "" {
-			s.Idempotency.Abort(storeKey)
+	if err := s.Engine.Call(r.Context(), "node.create", keyed.engineParams(req), &node); err != nil {
+		if keyed.storeKey != "" {
+			s.Idempotency.Abort(keyed.storeKey)
 		}
 		s.writeEngineError(w, r, err)
 		return
@@ -734,8 +758,8 @@ func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
 	location := "/api/v1/nodes/" + node.ID
 	w.Header().Set("Location", location)
 	body := writeJSON(w, http.StatusCreated, node)
-	if storeKey != "" {
-		s.Idempotency.Finish(storeKey, idem.Response{Status: http.StatusCreated, Body: body, Location: location})
+	if keyed.storeKey != "" {
+		s.Idempotency.Finish(keyed.storeKey, idem.Response{Status: http.StatusCreated, Body: body, Location: location})
 	}
 }
 
