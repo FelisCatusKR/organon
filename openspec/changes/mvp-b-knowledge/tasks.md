@@ -20,9 +20,9 @@
 
 - [x] 3.1 Add node methods to `internal/client` and node prefix resolution, and verify cli: Node prefix
 - [x] 3.2 Implement `node add|show|search|backlinks|links` (D6) and verify cli: Add a note (exact request body), Backlinks of a note, and `--json` output
-- [ ] 3.3 Document nodes, the `nodes:write` scope and the rebuild behavior in README and `docs/architecture.md` (§5, §8.2, §10.5, §14), and verify every documented command runs as written against a local stack
+- [x] 3.3 Document nodes, the `nodes:write` scope and the rebuild behavior in README and `docs/architecture.md` (§5, §8.2, §10.5, §14), and verify every documented command runs as written against a local stack
 
 ## 4. End-to-end
 
-- [ ] 4.1 Add the `drop-index` and `corrupt-index` ctl verbs to `scripts/e2e.sh`, and e2e tests for S5 (create, read, search), S6 (backlinks from a node and a task), S7 (drop the index and compare; corrupt index), external edits picked up, and node scopes; extend the recreate test with nodes; verify they pass under podman
-- [ ] 4.2 Add a CLI e2e smoke test for nodes (`node add` → `node search` → `node add` with a link → `node backlinks`) and verify it passes under podman
+- [x] 4.1 Add the `drop-index` and `corrupt-index` ctl verbs to `scripts/e2e.sh`, and e2e tests for S5 (create, read, search), S6 (backlinks from a node and a task), S7 (drop the index and compare; corrupt index), external edits picked up, and node scopes; extend the recreate test with nodes; verify they pass under podman
+- [x] 4.2 Add a CLI e2e smoke test for nodes (`node add` → `node search` → `node add` with a link → `node backlinks`) and verify it passes under podman

@@ -99,6 +99,19 @@ wait_api() {
 
 stack_up() { start_engine; wait_engine; start_api; wait_api; }
 
+kill_engine() {
+  # `kill` returns before the container has stopped; a start issued in that
+  # window finds it still running and does nothing.
+  cli kill "$(engine_name)" >/dev/null
+  cli wait "$(engine_name)" >/dev/null
+}
+
+restart_engine() {
+  if [[ "$runtime" == compose ]]; then compose up -d engine >/dev/null
+  else cli start "$(engine_name)" >/dev/null; fi
+  wait_engine
+}
+
 stack_down() {
   # Removes containers and named volumes. Never touches $work/data.
   if [[ "$runtime" == compose ]]; then
@@ -119,15 +132,15 @@ if [[ "${1:-}" == ctl ]]; then
   case "$verb" in
     pause-engine)   cli pause "$(engine_name)" >/dev/null ;;
     unpause-engine) cli unpause "$(engine_name)" >/dev/null ;;
-    kill-engine)
-      # `kill` returns before the container has stopped; a start issued in that
-      # window finds it still running and does nothing.
-      cli kill "$(engine_name)" >/dev/null
-      cli wait "$(engine_name)" >/dev/null ;;
-    start-engine)
-      if [[ "$runtime" == compose ]]; then compose up -d engine >/dev/null
-      else cli start "$(engine_name)" >/dev/null; fi
-      wait_engine ;;
+    kill-engine)    kill_engine ;;
+    start-engine)   restart_engine ;;
+    drop-index)     # delete the org-roam database, then restart the engine
+      cli exec "$(engine_name)" rm -f /cache/org-roam.db
+      kill_engine; restart_engine ;;
+    corrupt-index)  # replace the database with bytes that are not one, then restart
+      # rm first: the running engine keeps its open (now unlinked) file.
+      cli exec "$(engine_name)" sh -c 'rm -f /cache/org-roam.db && echo "not a database" > /cache/org-roam.db'
+      kill_engine; restart_engine ;;
     recreate)       stack_down; stack_up ;;
     engine-interfaces)
       cli exec "$(engine_name)" cat /proc/net/dev | tail -n +3 | awk -F: '{gsub(/ /, "", $1); print $1}' ;;
@@ -215,10 +228,10 @@ if [[ "$owner_access" == unshare ]]; then podman unshare chown "$uid:$uid" "$wor
 elif [[ "$owner_access" == sudo ]]; then sudo chown "$uid:$uid" "$work/data"; fi
 if [[ "$runtime" == compose ]]; then
   compose run --rm --no-deps engine organon init --calendar-tz Asia/Seoul >/dev/null
-  token_out=$(compose run --rm --no-deps engine organon token new --name e2e --scopes read,tasks:write)
+  token_out=$(compose run --rm --no-deps engine organon token new --name e2e --scopes read,tasks:write,nodes:write)
 else
   podman run --rm "$(podman_userns)" -v "$work/data:/data:Z" "$image" organon init --calendar-tz Asia/Seoul >/dev/null
-  token_out=$(podman run --rm "$image" organon token new --name e2e --scopes read,tasks:write)
+  token_out=$(podman run --rm "$image" organon token new --name e2e --scopes read,tasks:write,nodes:write)
 fi
 token=$(sed -n 2p <<<"$token_out" | tr -d ' \r')
 sed -n 4p <<<"$token_out" | sed 's/^ *//' | tr -d '\r' > "$work/tokens"
@@ -230,6 +243,14 @@ else
 fi
 ro_token=$(sed -n 2p <<<"$ro_out" | tr -d ' \r')
 sed -n 4p <<<"$ro_out" | sed 's/^ *//' | tr -d '\r' >> "$work/tokens"
+# A note-taking token (no tasks:write) for scope tests.
+if [[ "$runtime" == compose ]]; then
+  notes_out=$(compose run --rm --no-deps engine organon token new --name e2e-notes --scopes read,nodes:write)
+else
+  notes_out=$(podman run --rm "$image" organon token new --name e2e-notes --scopes read,nodes:write)
+fi
+notes_token=$(sed -n 2p <<<"$notes_out" | tr -d ' \r')
+sed -n 4p <<<"$notes_out" | sed 's/^ *//' | tr -d '\r' >> "$work/tokens"
 chmod 644 "$work/tokens"
 
 echo "e2e: runtime=$runtime image=$image uid=$uid" >&2
@@ -239,6 +260,7 @@ cd "$root/api"
 ORGANON_E2E_URL="http://127.0.0.1:$port" \
 ORGANON_E2E_TOKEN="$token" \
 ORGANON_E2E_READ_TOKEN="$ro_token" \
+ORGANON_E2E_NOTES_TOKEN="$notes_token" \
 ORGANON_E2E_DATA="$work/data" \
 ORGANON_E2E_UID="$uid" \
 ORGANON_E2E_CTL="$root/scripts/e2e.sh ctl" \
