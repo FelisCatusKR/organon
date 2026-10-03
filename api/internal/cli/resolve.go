@@ -76,3 +76,20 @@ func resolveProject(ctx context.Context, c *client.Client, arg string) (string, 
 	}
 	return pick("project", arg, all)
 }
+
+// resolveNode accepts a full ID or a unique prefix, looked up among the nodes
+// search returns (archived nodes need their full ID).
+func resolveNode(ctx context.Context, c *client.Client, arg string) (string, error) {
+	if fullIDRE.MatchString(strings.ToLower(arg)) {
+		return strings.ToLower(arg), nil
+	}
+	list, _, err := c.SearchNodes(ctx, "", "")
+	if err != nil {
+		return "", err
+	}
+	all := make([]candidate, 0, len(list.Items))
+	for _, n := range list.Items {
+		all = append(all, candidate{n.ID, n.Title})
+	}
+	return pick("node", arg, all)
+}

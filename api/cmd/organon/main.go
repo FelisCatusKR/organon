@@ -88,7 +88,7 @@ server commands:
   healthcheck                     check the API's /healthz
   rpc-ping                        check the engine socket
   init [--calendar-tz ZONE]       create a new data directory
-  token new --name N --scopes S   create a token (scopes: read, tasks:write)
+  token new --name N --scopes S   create a token (scopes: read, tasks:write, nodes:write)
   token hash                      hash a token read from stdin
   version
 
@@ -208,13 +208,13 @@ func initInstance(args []string) error {
 
 func token(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: organon token new --name NAME --scopes read[,tasks:write] | organon token hash")
+		return errors.New("usage: organon token new --name NAME --scopes read[,tasks:write][,nodes:write] | organon token hash")
 	}
 	switch args[0] {
 	case "new":
 		fs := flag.NewFlagSet("token new", flag.ExitOnError)
 		name := fs.String("name", "", "client name, e.g. hermes")
-		scopes := fs.String("scopes", auth.ScopeRead, "comma-separated scopes: read, tasks:write")
+		scopes := fs.String("scopes", auth.ScopeRead, "comma-separated scopes: read, tasks:write, nodes:write")
 		fs.Parse(args[1:])
 		if *name == "" || strings.ContainsAny(*name, " \t\n") {
 			return errors.New("--name is required and must not contain spaces")

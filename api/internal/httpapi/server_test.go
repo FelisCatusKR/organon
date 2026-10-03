@@ -19,6 +19,7 @@ import (
 const (
 	readToken  = "read-token"
 	writeToken = "write-token"
+	noteToken  = "note-token" // read,nodes:write
 	taskID     = "11111111-1111-4111-8111-000000000001"
 )
 
@@ -93,7 +94,8 @@ func newTestServer(t *testing.T) (*fakeEngine, http.Handler) {
 		"tasks.today": func(map[string]any) (any, error) { return []any{}, nil },
 	}}
 	tokens, err := auth.Parse(strings.NewReader(
-		"reader read " + auth.Hash(readToken) + "\nwriter read,tasks:write " + auth.Hash(writeToken) + "\n"))
+		"reader read " + auth.Hash(readToken) + "\nwriter read,tasks:write " + auth.Hash(writeToken) +
+			"\nnoter read,nodes:write " + auth.Hash(noteToken) + "\n"))
 	if err != nil {
 		t.Fatal(err)
 	}

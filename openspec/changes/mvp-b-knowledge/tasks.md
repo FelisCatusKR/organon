@@ -12,14 +12,14 @@
 
 ## 2. API
 
-- [ ] 2.1 Extend `api/openapi.yaml` (CreateNode, Node, NodeSummary, NodeList, NodeRef, NodeRefList, the five operations, `nodes:write` in the security description), regenerate types, and verify `mise run lint:openapi` and `mise run check:generated` pass
-- [ ] 2.2 Add the `nodes:write` scope to `internal/auth` and `organon token new`, and verify unit tests for api-access: Read-only token tries to create a node, Note-taking token cannot change tasks
-- [ ] 2.3 Implement the node handlers with query and path validation and idempotent creation (D5), and verify unit tests for knowledge-nodes: Invalid search, Retried creation (API side), valid filters reach the engine unchanged, and contract validation of every new response
+- [x] 2.1 Extend `api/openapi.yaml` (CreateNode, Node, NodeSummary, NodeList, NodeRef, NodeRefList, the five operations, `nodes:write` in the security description), regenerate types, and verify `mise run lint:openapi` and `mise run check:generated` pass
+- [x] 2.2 Add the `nodes:write` scope to `internal/auth` and `organon token new`, and verify unit tests for api-access: Read-only token tries to create a node, Note-taking token cannot change tasks
+- [x] 2.3 Implement the node handlers with query and path validation and idempotent creation (D5), and verify unit tests for knowledge-nodes: Invalid search, Retried creation (API side), valid filters reach the engine unchanged, and contract validation of every new response
 
 ## 3. CLI
 
-- [ ] 3.1 Add node methods to `internal/client` and node prefix resolution, and verify cli: Node prefix
-- [ ] 3.2 Implement `node add|show|search|backlinks|links` (D6) and verify cli: Add a note (exact request body), Backlinks of a note, and `--json` output
+- [x] 3.1 Add node methods to `internal/client` and node prefix resolution, and verify cli: Node prefix
+- [x] 3.2 Implement `node add|show|search|backlinks|links` (D6) and verify cli: Add a note (exact request body), Backlinks of a note, and `--json` output
 - [ ] 3.3 Document nodes, the `nodes:write` scope and the rebuild behavior in README and `docs/architecture.md` (§5, §8.2, §10.5, §14), and verify every documented command runs as written against a local stack
 
 ## 4. End-to-end

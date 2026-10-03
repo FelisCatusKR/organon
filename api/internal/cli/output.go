@@ -92,3 +92,47 @@ func printProjects(w io.Writer, projects []model.Project) {
 		fmt.Fprintf(w, "%s  %3d open  %s\n", shortID(p.ID), p.OpenTasks, p.Title)
 	}
 }
+
+// nodeLine is one row of a node list.
+func nodeLine(n model.NodeSummary) string {
+	line := shortID(n.ID) + "  " + n.Title
+	if len(n.Tags) > 0 {
+		line += "  :" + strings.Join(n.Tags, ":") + ":"
+	}
+	if len(n.Aliases) > 0 {
+		line += "  (aka " + strings.Join(n.Aliases, ", ") + ")"
+	}
+	return line
+}
+
+func printNodes(w io.Writer, nodes []model.NodeSummary) {
+	if len(nodes) == 0 {
+		fmt.Fprintln(w, "(no nodes)")
+		return
+	}
+	for _, n := range nodes {
+		fmt.Fprintln(w, nodeLine(n))
+	}
+}
+
+func printNode(w io.Writer, n model.Node) {
+	fmt.Fprintln(w, nodeLine(model.NodeSummary{ID: n.ID, Title: n.Title, Tags: n.Tags, Aliases: n.Aliases}))
+	fmt.Fprintf(w, "  id       %s\n", n.ID)
+	if n.Body != "" {
+		fmt.Fprintln(w)
+		for _, line := range strings.Split(n.Body, "\n") {
+			fmt.Fprintln(w, "  "+line)
+		}
+	}
+}
+
+// printRefs prints backlinks or links: kind, short ID, title.
+func printRefs(w io.Writer, refs []model.NodeRef) {
+	if len(refs) == 0 {
+		fmt.Fprintln(w, "(none)")
+		return
+	}
+	for _, r := range refs {
+		fmt.Fprintf(w, "%-4s  %s  %s\n", r.Kind, shortID(r.ID), r.Title)
+	}
+}

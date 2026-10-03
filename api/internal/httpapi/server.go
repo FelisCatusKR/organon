@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/FelisCatusKR/organon/api/internal/auth"
 	"github.com/FelisCatusKR/organon/api/internal/idem"
@@ -74,6 +75,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/projects", s.authorize(read, s.listProjects))
 	mux.Handle("POST /api/v1/projects", s.authorize(write, s.createProject))
 	mux.Handle("POST /api/v1/tasks/{id}/{action}", s.authorize(write, s.transition))
+	mux.Handle("GET /api/v1/nodes", s.authorize(read, s.searchNodes))
+	mux.Handle("POST /api/v1/nodes", s.authorize(auth.ScopeNodesWrite, s.createNode))
+	mux.Handle("GET /api/v1/nodes/{id}", s.authorize(read, s.getNode))
+	mux.Handle("GET /api/v1/nodes/{id}/backlinks", s.authorize(read, s.nodeRefs("node.backlinks")))
+	mux.Handle("GET /api/v1/nodes/{id}/links", s.authorize(read, s.nodeRefs("node.links")))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusNotFound, model.ProblemCodeNotFound, "no such endpoint", nil)
 	})
@@ -649,4 +655,104 @@ func (s *Server) beginIdempotent(w http.ResponseWriter, r *http.Request, req any
 		return "", true
 	}
 	return storeKey, false
+}
+
+// ---- knowledge nodes ---------------------------------------------------------------
+
+const maxQueryChars = 200
+
+// searchNodes validates q and tag here, so that malformed values never reach
+// the engine (spec: knowledge-nodes, Invalid search).
+func (s *Server) searchNodes(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	params := map[string]any{}
+	if v := q.Get("q"); v != "" {
+		if utf8.RuneCountInString(v) > maxQueryChars || strings.ContainsFunc(v, isControl) {
+			invalid(w, "q must be at most 200 characters without control characters")
+			return
+		}
+		params["q"] = v
+	}
+	if v := q.Get("tag"); v != "" {
+		if !tagRE.MatchString(v) {
+			invalid(w, "tag must contain only letters, digits and _@#%")
+			return
+		}
+		params["tag"] = v
+	}
+	var items []model.NodeSummary
+	if err := s.Engine.Call(r.Context(), "nodes.search", params, &items); err != nil {
+		s.writeEngineError(w, r, err)
+		return
+	}
+	for i := range items {
+		items[i].Normalize()
+	}
+	if items == nil {
+		items = []model.NodeSummary{}
+	}
+	writeJSON(w, http.StatusOK, model.NodeList{Items: items})
+}
+
+// isControl matches the characters the engine rejects in a single line.
+func isControl(r rune) bool { return r < 0x20 || r == 0x7f }
+
+func (s *Server) getNode(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var node model.Node
+	if err := s.Engine.Call(r.Context(), "node.get", map[string]any{"id": id}, &node); err != nil {
+		s.writeEngineError(w, r, err)
+		return
+	}
+	node.Normalize()
+	writeJSON(w, http.StatusOK, node)
+}
+
+func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
+	var req model.CreateNode
+	if _, ok := decodeBody(w, r, &req); !ok {
+		return
+	}
+	storeKey, handled := s.beginIdempotent(w, r, req)
+	if handled {
+		return
+	}
+	var node model.Node
+	if err := s.Engine.Call(r.Context(), "node.create", req, &node); err != nil {
+		if storeKey != "" {
+			s.Idempotency.Abort(storeKey)
+		}
+		s.writeEngineError(w, r, err)
+		return
+	}
+	node.Normalize()
+	location := "/api/v1/nodes/" + node.ID
+	w.Header().Set("Location", location)
+	body := writeJSON(w, http.StatusCreated, node)
+	if storeKey != "" {
+		s.Idempotency.Finish(storeKey, idem.Response{Status: http.StatusCreated, Body: body, Location: location})
+	}
+}
+
+// nodeRefs serves the backlinks and links of a node (engine method
+// node.backlinks or node.links).
+func (s *Server) nodeRefs(method string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := pathID(w, r)
+		if !ok {
+			return
+		}
+		var items []model.NodeRef
+		if err := s.Engine.Call(r.Context(), method, map[string]any{"id": id}, &items); err != nil {
+			s.writeEngineError(w, r, err)
+			return
+		}
+		if items == nil {
+			items = []model.NodeRef{}
+		}
+		writeJSON(w, http.StatusOK, model.NodeRefList{Items: items})
+	}
 }

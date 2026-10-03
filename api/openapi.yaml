@@ -4,9 +4,10 @@ info:
   version: 0.1.0
   summary: Headless Org-mode as your personal API.
   description: |
-    Tasks live in plain Org files; this API is the only way clients read and
-    change them. Everything that has a meaning in Org (state changes,
-    repeaters, deadline warnings, agenda membership) is computed by Org itself.
+    Tasks and notes live in plain Org files; this API is the only way clients
+    read and change them. Everything that has a meaning in Org (state changes,
+    repeaters, deadline warnings, agenda membership) is computed by Org itself,
+    and everything about notes (IDs, links, backlinks) by org-roam.
 
     **Dates and instants.** Planning dates (`scheduled`, `deadline`) are
     calendar dates with an optional wall-clock time in the instance's calendar
@@ -14,7 +15,8 @@ info:
     (`closed_at`) are RFC 3339 UTC.
 
     Behavior is specified in `openspec/` (capabilities task-lifecycle,
-    task-recurrence, agenda-queries, time-model, api-access).
+    task-recurrence, agenda-queries, time-model, api-access, knowledge-nodes,
+    knowledge-index).
   license:
     name: MIT
     identifier: MIT
@@ -31,6 +33,10 @@ tags:
     description: The Org agenda for a day.
   - name: projects
     description: Projects (level-1 headings in org/projects/) that group tasks.
+  - name: nodes
+    description: |
+      Knowledge nodes: org-roam nodes (files or headings with an ID) that are
+      not tasks, and the links between nodes and tasks.
 
 paths:
   /healthz:
@@ -336,6 +342,122 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/EngineUnavailable" }
 
+  /api/v1/nodes:
+    get:
+      tags: [nodes]
+      operationId: searchNodes
+      summary: Find nodes by title, alias and tag
+      description: |
+        Nodes outside `org/archive/`, ordered by title. `q` keeps nodes whose
+        title or an alias contains it, ignoring case; `tag` keeps nodes with
+        that tag. Filters combine with AND; without them every node is listed.
+        Tasks are never listed.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Text to look for in titles and aliases.
+          schema: { type: string, maxLength: 200 }
+        - name: tag
+          in: query
+          required: false
+          schema: { type: string, pattern: "^[A-Za-z0-9_@#%]+$" }
+      responses:
+        "200":
+          description: Matching nodes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NodeList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+    post:
+      tags: [nodes]
+      operationId: createNode
+      summary: Create a node (a new file under org/knowledge/)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateNode" }
+      responses:
+        "201":
+          description: The created node.
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Node" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/nodes/{id}:
+    get:
+      tags: [nodes]
+      operationId: getNode
+      summary: A node by its stable ID
+      parameters:
+        - $ref: "#/components/parameters/nodeId"
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Node" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/nodes/{id}/backlinks:
+    get:
+      tags: [nodes]
+      operationId: getNodeBacklinks
+      summary: Nodes and tasks that link to the node
+      description: |
+        Every node and task with an Org `id:` link to this node, once per
+        source, ordered by title. Archived files are included.
+      parameters:
+        - $ref: "#/components/parameters/nodeId"
+      responses:
+        "200": { $ref: "#/components/responses/NodeRefList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
+  /api/v1/nodes/{id}/links:
+    get:
+      tags: [nodes]
+      operationId: getNodeLinks
+      summary: Nodes and tasks the node links to
+      description: |
+        The targets of the node's Org `id:` links, once per target, ordered by
+        title. Links to IDs that no entry has are left out.
+      parameters:
+        - $ref: "#/components/parameters/nodeId"
+      responses:
+        "200": { $ref: "#/components/responses/NodeRefList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/EngineUnavailable" }
+
 components:
   securitySchemes:
     bearer:
@@ -343,7 +465,9 @@ components:
       scheme: bearer
       description: |
         Tokens are created with `organon token new` and carry scopes:
-        `read` for every GET, `tasks:write` for creating and changing tasks.
+        `read` for every GET, `tasks:write` for creating and changing tasks
+        and projects, `nodes:write` for creating nodes. No scope implies
+        another.
 
   parameters:
     IdempotencyKey:
@@ -361,6 +485,12 @@ components:
       required: true
       description: The task's Org ID (a lowercase UUID).
       schema: { $ref: "#/components/schemas/ID" }
+    nodeId:
+      name: id
+      in: path
+      required: true
+      description: The node's Org ID (a lowercase UUID).
+      schema: { $ref: "#/components/schemas/ID" }
     date:
       name: date
       in: query
@@ -374,6 +504,11 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/TaskList" }
+    NodeRefList:
+      description: Linked nodes and tasks.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/NodeRefList" }
     TaskListWithAgenda:
       description: Tasks; each carries `agenda`, the reason it is on the agenda.
       content:
@@ -390,7 +525,7 @@ components:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
     NotFound:
-      description: No such task (or endpoint).
+      description: No such task, project, node or endpoint.
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
@@ -649,6 +784,95 @@ components:
           maxLength: 500
           description: Same rules as task titles, and must not start with a task state such as TODO.
         body: { type: string }
+
+    Node:
+      type: object
+      required: [id, title, aliases, tags, body, location_hint]
+      properties:
+        id: { $ref: "#/components/schemas/ID" }
+        title: { type: string }
+        aliases:
+          type: array
+          items: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        body:
+          type: string
+          description: |
+            The node's own text: for a file, the text before its first heading;
+            for a heading, the text before its first child heading.
+        location_hint:
+          type: string
+          description: File the node is in, for debugging only. Not an identifier; do not rely on it.
+
+    NodeSummary:
+      type: object
+      required: [id, title, aliases, tags, location_hint]
+      properties:
+        id: { $ref: "#/components/schemas/ID" }
+        title: { type: string }
+        aliases:
+          type: array
+          items: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        location_hint:
+          type: string
+          description: File the node is in, for debugging only. Not an identifier.
+
+    NodeList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/NodeSummary" }
+
+    NodeRef:
+      type: object
+      required: [id, title, kind]
+      properties:
+        id: { $ref: "#/components/schemas/ID" }
+        title: { type: string }
+        kind:
+          type: string
+          enum: [node, task]
+          description: Which endpoint reads the entry, `/api/v1/nodes/{id}` or `/api/v1/tasks/{id}`.
+
+    NodeRefList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/NodeRef" }
+
+    CreateNode:
+      type: object
+      required: [title]
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          maxLength: 500
+          description: One line. Active timestamps are stored inactive.
+        body:
+          type: string
+          description: |
+            Org text below the title. Lines that would be Org structure
+            (headings, keywords, drawers) are stored so they stay text; active
+            timestamps are stored inactive. Org ID links
+            (`[[id:<uuid>][label]]`) are kept and become links and backlinks.
+        tags:
+          type: array
+          items: { type: string, pattern: "^[A-Za-z0-9_@#%]+$" }
+        aliases:
+          type: array
+          maxItems: 50
+          description: Other names the node is found by. One line each.
+          items: { type: string, maxLength: 500 }
 
     Transition:
       type: object

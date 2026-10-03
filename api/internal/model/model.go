@@ -14,3 +14,20 @@ func (t *Task) Normalize() {
 		t.Tags = []string{}
 	}
 }
+
+// Normalize makes empty collections encode as [] rather than null.
+func (n *Node) Normalize() {
+	n.Aliases, n.Tags = nonNil(n.Aliases), nonNil(n.Tags)
+}
+
+// Normalize makes empty collections encode as [] rather than null.
+func (n *NodeSummary) Normalize() {
+	n.Aliases, n.Tags = nonNil(n.Aliases), nonNil(n.Tags)
+}
+
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
