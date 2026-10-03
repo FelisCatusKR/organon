@@ -68,6 +68,8 @@ File timestamps stay real
             (funcall fn)))
       (organon-test--kill-buffers-under tmp)
       (when (bound-and-true-p organon--server) (delete-process organon--server))
+      ;; The org-roam database lives in the instance's cache directory.
+      (when (fboundp 'org-roam-db--close-all) (org-roam-db--close-all))
       ;; Configuring an instance sets TZ process-wide; don't leak it.
       (setenv "TZ" saved-tz)
       (delete-directory tmp t))))

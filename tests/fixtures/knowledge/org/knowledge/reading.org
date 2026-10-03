@@ -1,0 +1,16 @@
+#+title: Reading
+#+TODO: IDEA | DROPPED
+
+* Reading list
+:PROPERTIES:
+:ID:       aaaaaaaa-0000-4000-8000-000000000003
+:END:
+Books to read this year.
+
+** Chapter notes
+Not part of the reading list body.
+
+* IDEA Garden pond
+:PROPERTIES:
+:ID:       aaaaaaaa-0000-4000-8000-000000000004
+:END:

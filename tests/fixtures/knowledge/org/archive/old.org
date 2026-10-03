@@ -1,0 +1,7 @@
+#+title: Archive
+
+* Old Emacs config
+:PROPERTIES:
+:ID:       bbbbbbbb-0000-4000-8000-000000000001
+:END:
+Replaced by [[id:aaaaaaaa-0000-4000-8000-000000000001][Emacs 설정 노트]].

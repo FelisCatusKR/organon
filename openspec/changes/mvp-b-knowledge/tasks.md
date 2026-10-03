@@ -2,13 +2,13 @@
 
 ## 1. Engine
 
-- [ ] 1.1 Load org-roam and configure the index (D3: directory, database in the cache directory, no external listing commands, encrypted files excluded, `organon-configure-hook`, save hook), and verify ERT for knowledge-index: Index stays out of the data directory, Task that links to a note
-- [ ] 1.2 Sync the index at startup with the delete-and-retry fallback, and verify ERT for knowledge-index: Rebuild after the index is deleted, Corrupt index
-- [ ] 1.3 Implement `organon-index-ensure-current` (D3) and verify ERT for knowledge-index: Note written by another process, Link removed by another process, File deleted while the engine was stopped
-- [ ] 1.4 Implement `node.create` (D1) and verify ERT golden tests for knowledge-nodes: Node is persisted as an Org file, Tags and aliases, Same title twice, Title with a newline, Body that looks like a heading, Link in a body, and knowledge-index: New node is searchable
-- [ ] 1.5 Implement `node.get` (D4) and verify ERT for knowledge-nodes: Read a created node, Hand-written heading node, Unknown node, Task ID under /nodes
-- [ ] 1.6 Implement `nodes.search` (D2, D4) and verify ERT for knowledge-nodes: Match on an alias ignoring case, Filter by tag, Archived notes are not searched, Heading with another keyword
-- [ ] 1.7 Implement `node.backlinks` and `node.links` (D4) and verify ERT for knowledge-nodes: Backlinks from a note and a task, Backlink from an archived file, New link appears at once, Links of a note, Dangling link
+- [x] 1.1 Load org-roam and configure the index (D3: directory, database in the cache directory, no external listing commands, encrypted files excluded, `organon-configure-hook`, save hook), and verify ERT for knowledge-index: Index stays out of the data directory, Task that links to a note
+- [x] 1.2 Sync the index at startup with the delete-and-retry fallback, and verify ERT for knowledge-index: Rebuild after the index is deleted, Corrupt index
+- [x] 1.3 Implement `organon-index-ensure-current` (D3) and verify ERT for knowledge-index: Note written by another process, Link removed by another process, File deleted while the engine was stopped
+- [x] 1.4 Implement `node.create` (D1) and verify ERT golden tests for knowledge-nodes: Node is persisted as an Org file, Tags and aliases, Same title twice, Title with a newline, Body that looks like a heading, Link in a body, and knowledge-index: New node is searchable
+- [x] 1.5 Implement `node.get` (D4) and verify ERT for knowledge-nodes: Read a created node, Hand-written heading node, Unknown node, Task ID under /nodes
+- [x] 1.6 Implement `nodes.search` (D2, D4) and verify ERT for knowledge-nodes: Match on an alias ignoring case, Filter by tag, Archived notes are not searched, Heading with another keyword
+- [x] 1.7 Implement `node.backlinks` and `node.links` (D4) and verify ERT for knowledge-nodes: Backlinks from a note and a task, Backlink from an archived file, New link appears at once, Links of a note, Dangling link
 
 ## 2. API
 

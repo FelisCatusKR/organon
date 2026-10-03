@@ -1,0 +1,10 @@
+:PROPERTIES:
+:ID:       aaaaaaaa-0000-4000-8000-000000000002
+:END:
+#+title: Key bindings
+#+filetags: :emacs:
+
+Global keys are set in [[id:aaaaaaaa-0000-4000-8000-000000000001][the config]].
+See also [[id:aaaaaaaa-0000-4000-8000-000000000001][Emacs 설정 노트]] again, the task
+[[id:cccccccc-0000-4000-8000-000000000001][Read the Emacs notes]] and a note that is gone:
+[[id:dddddddd-0000-4000-8000-000000000404][deleted]].

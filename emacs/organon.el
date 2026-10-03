@@ -50,6 +50,14 @@ so health checks fail instead of the engine silently guessing a time zone.")
 
 (defvar organon-zoneinfo-dir "/usr/share/zoneinfo/")
 
+(defvar organon-configure-hook nil
+  "Functions run by `organon-configure' once the instance paths are set.
+Modules that keep state per instance (the org-roam index) reset it here.")
+
+(defvar organon-startup-hook nil
+  "Functions run by `organon-start' after a successful configuration, before
+the socket listens: the engine reports healthy only once they are done.")
+
 (defun organon-configure (data-dir cache-dir run-dir)
   "Point the engine at DATA-DIR, CACHE-DIR and RUN-DIR and load organon.json."
   (setq organon-data-dir (file-name-as-directory (expand-file-name data-dir))
@@ -60,7 +68,8 @@ so health checks fail instead of the engine silently guessing a time zone.")
   (setq org-id-locations-file (expand-file-name "org-id-locations" organon-cache-dir)
         org-id-locations nil
         org-id-files nil)
-  (organon-load-config))
+  (organon-load-config)
+  (run-hooks 'organon-configure-hook))
 
 (defconst organon--non-zones '("localtime" "posixrules" "Factory")
   "Zone files that are not a place: the host's own zone, a POSIX default
@@ -491,6 +500,7 @@ This is the only way methods modify existing entries."
   (if organon-config-error
       (message "organon: NOT CONFIGURED: %s" organon-config-error)
     (organon-update-id-locations)
+    (run-hooks 'organon-startup-hook)
     ;; The first agenda build loads a lot of Org code (~3 s on a Pi 4); pay
     ;; that cost before reporting healthy rather than on the first request.
     (condition-case err

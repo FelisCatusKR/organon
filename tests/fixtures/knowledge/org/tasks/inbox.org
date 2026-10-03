@@ -1,0 +1,7 @@
+#+title: Inbox
+
+* TODO Read the Emacs notes
+:PROPERTIES:
+:ID:       cccccccc-0000-4000-8000-000000000001
+:END:
+Start with [[id:aaaaaaaa-0000-4000-8000-000000000001][Emacs 설정 노트]].
