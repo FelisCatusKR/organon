@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/pb33f/libopenapi v0.41.2
-	github.com/pb33f/libopenapi-validator v0.15.0
+	github.com/pb33f/libopenapi-validator v0.15.1
 )
 
 require (
