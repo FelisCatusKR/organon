@@ -323,7 +323,7 @@ func TestClientKeyFromProxyHeader(t *testing.T) {
 		for _, v := range c.values {
 			r.Header.Add("X-Forwarded-For", v)
 		}
-		if got := s.clientAddr(r); got != c.want {
+		if got := s.ClientAddr(r); got != c.want {
 			t.Errorf("%q: got %q, want %q", c.values, got, c.want)
 		}
 	}

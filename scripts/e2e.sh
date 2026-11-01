@@ -44,6 +44,7 @@ compose() {
   else cmd=(podman compose); fi
   ORGANON_IMAGE="$image" ORGANON_DATA="$work/data" ORGANON_TOKENS="$work/tokens" \
   ORGANON_UID="$uid" ORGANON_GID="$uid" ORGANON_PORT="$port" ORGANON_USERNS_MODE="$userns_mode" \
+  ORGANON_WEB_ENABLED=true ORGANON_WEB_INSECURE_COOKIE=true \
     "${cmd[@]}" -p organon-e2e -f "$root/compose.yaml" --project-directory "$work" "$@"
 }
 
@@ -84,6 +85,7 @@ start_api() {
   podman run -d --name organon-e2e-api "$(podman_userns)" \
     --read-only --cap-drop all --security-opt no-new-privileges \
     -e ORGANON_LISTEN=0.0.0.0:8080 -e ORGANON_TOKENS_FILE=/tokens -e ORGANON_ENGINE_TIMEOUT=10s \
+    -e ORGANON_WEB_ENABLED=true -e ORGANON_WEB_INSECURE_COOKIE=true \
     -v "$work/tokens:/tokens:ro,Z" -v organon-e2e-run:/run/organon -p "127.0.0.1:$port:8080" \
     "$image" "${api_cmd[@]}" >/dev/null
 }

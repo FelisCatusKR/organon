@@ -15,7 +15,7 @@
     "tmpfs": [],
     "environment": {
       "required": ["ORGANON_LISTEN", "ORGANON_TOKENS_FILE"],
-      "optional": ["ORGANON_CLIENT_IP_HEADER", "ORGANON_ENGINE_TIMEOUT"]
+      "optional": ["ORGANON_CLIENT_IP_HEADER", "ORGANON_ENGINE_TIMEOUT", "ORGANON_WEB_ENABLED", "ORGANON_WEB_INSECURE_COOKIE"]
     }
   }
 }

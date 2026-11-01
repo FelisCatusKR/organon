@@ -23,6 +23,8 @@
 #                             is your own host user rather than a subordinate UID
 #   ORGANON_BIND / ORGANON_PORT  where the API listens on the host (default 127.0.0.1:8080)
 #   ORGANON_CLIENT_IP_HEADER  e.g. CF-Connecting-IP when behind cloudflared
+#   ORGANON_WEB_ENABLED       true serves the web interface (docs/usage.md)
+#   ORGANON_WEB_INSECURE_COOKIE  true for the web interface over plain HTTP only
 
 name: organon
 
@@ -62,6 +64,8 @@ services:
       ORGANON_LISTEN: 0.0.0.0:8080
       ORGANON_TOKENS_FILE: /run/secrets/organon_tokens
       ORGANON_CLIENT_IP_HEADER: ${ORGANON_CLIENT_IP_HEADER:-}
+      ORGANON_WEB_ENABLED: ${ORGANON_WEB_ENABLED:-}
+      ORGANON_WEB_INSECURE_COOKIE: ${ORGANON_WEB_INSECURE_COOKIE:-}
     ports:
       - "${ORGANON_BIND:-127.0.0.1}:${ORGANON_PORT:-8080}:8080"
     volumes:

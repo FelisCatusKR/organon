@@ -14,6 +14,8 @@
 //	ORGANON_RUN_DIR           directory holding rpc.sock (default /run/organon)
 //	ORGANON_DATA_DIR          data directory for init (default /data)
 //	ORGANON_TOKENS_FILE       tokens file for serve (required)
+//	ORGANON_WEB_ENABLED       "true" serves the web interface
+//	ORGANON_WEB_INSECURE_COOKIE  "true" drops Secure from its cookie (plain HTTP only)
 //	ORGANON_ENGINE_TIMEOUT    per-request engine timeout (default 10s)
 //	ORGANON_CLIENT_IP_HEADER  header holding the client address behind a proxy
 package main
@@ -40,6 +42,7 @@ import (
 	"github.com/FelisCatusKR/organon/api/internal/idem"
 	"github.com/FelisCatusKR/organon/api/internal/instance"
 	"github.com/FelisCatusKR/organon/api/internal/rpc"
+	"github.com/FelisCatusKR/organon/api/internal/web"
 )
 
 // version is overridden at build time with -ldflags "-X main.version=...".
@@ -132,6 +135,22 @@ func serve() error {
 		ClientIPHeader: os.Getenv("ORGANON_CLIENT_IP_HEADER"),
 		Version:        version,
 		Logger:         logger,
+	}
+	// The web interface is opt-in: only the exact value turns it on, so that
+	// a typo leaves an instance as it was rather than newly exposed.
+	if os.Getenv("ORGANON_WEB_ENABLED") == "true" {
+		ui, err := web.New(web.Config{
+			Tokens:       tokens,
+			Limiter:      api.Limiter,
+			ClientAddr:   api.ClientAddr,
+			Transport:    api.InProcess,
+			SecureCookie: os.Getenv("ORGANON_WEB_INSECURE_COOKIE") != "true",
+			Logger:       logger,
+		})
+		if err != nil {
+			return fmt.Errorf("web interface: %w", err)
+		}
+		api.UI = ui
 	}
 	addr := env("ORGANON_LISTEN", "127.0.0.1:8080")
 	srv := &http.Server{
