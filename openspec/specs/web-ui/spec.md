@@ -1,7 +1,8 @@
 # web-ui Specification
 
 ## Purpose
-TBD - created by archiving change web-tasks. Update Purpose after archive.
+An optional browser interface to the API: signing in with a token, and working with tasks from a phone, without
+widening what a token may do or changing the API for deployments that leave it off.
 
 ## Requirements
 
