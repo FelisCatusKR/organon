@@ -52,6 +52,8 @@ Environment variables, or a `.env` file next to `compose.yaml`:
 | `ORGANON_UID` / `ORGANON_GID` | `1000` | Owner of the data directory. Docker runs as root otherwise and your files would become root-owned |
 | `ORGANON_BIND` / `ORGANON_PORT` | `127.0.0.1` / `8080` | Where the API listens on the host |
 | `ORGANON_CLIENT_IP_HEADER` | – | Header with the real client address behind a proxy (see [Exposing it](#exposing-it)) |
+| `ORGANON_WEB_ENABLED` | – | `true` serves the [web interface](#the-web-interface) |
+| `ORGANON_WEB_INSECURE_COOKIE` | – | `true` lets the web interface sign in over plain HTTP |
 | `ORGANON_IMAGE` | `ghcr.io/feliscatuskr/organon:main` | Image to run (see [Images](#images)) |
 
 ## Images
@@ -88,7 +90,7 @@ against it. Your own unit files can rely on the same interface:
 | Mounts | `/data` (your data), `/cache` (rebuildable), `/run/organon` (the socket, shared) | `/run/organon` only, never `/data` |
 | Other writable paths | a tmpfs at `/tmp`; the root filesystem may be read-only | none |
 | Network | none (loopback only) | wherever clients reach it |
-| Environment | none needed | `ORGANON_LISTEN` (e.g. `0.0.0.0:8080`; the default `127.0.0.1:8080` is unreachable from outside the container), `ORGANON_TOKENS_FILE`; optional `ORGANON_CLIENT_IP_HEADER`, `ORGANON_ENGINE_TIMEOUT` (default `10s`) |
+| Environment | none needed | `ORGANON_LISTEN` (e.g. `0.0.0.0:8080`; the default `127.0.0.1:8080` is unreachable from outside the container), `ORGANON_TOKENS_FILE`; optional `ORGANON_CLIENT_IP_HEADER`, `ORGANON_ENGINE_TIMEOUT` (default `10s`), `ORGANON_WEB_ENABLED`, `ORGANON_WEB_INSECURE_COOKIE` |
 
 - **User.** Both containers run as any non-root UID, and the image default is `1000:1000`. Use the same UID for
   both containers, because they share the socket. That UID should also own the data directory: rootless Podman
@@ -131,6 +133,23 @@ carries the real client address, for example `CF-Connecting-IP` or `X-Forwarded-
 - Set it only when every request reaches the API through that proxy, because the header is trusted as given.
 - For `X-Forwarded-For`, the last entry counts: it is the one your proxy appended.
 - A value that is not an address falls back to the proxy's own address, which all clients then share.
+
+## The web interface
+
+It is off unless `ORGANON_WEB_ENABLED` is exactly `true`. Turning it on adds a public sign-in page at the root of the
+address; `/api/v1` still accepts only bearer tokens. Pages are served by the API container, so there is nothing else to run.
+
+- **Use TLS.** The session cookie is `Secure`, so browsers send it only over HTTPS. Over a plain HTTP connection,
+  for example on `127.0.0.1` in Safari or inside an already encrypted private network, set
+  `ORGANON_WEB_INSECURE_COOKIE=true`. Anywhere else this would expose the token and the session.
+- **Behind a proxy, set `ORGANON_CLIENT_IP_HEADER`.** Without it all clients share one count of failed attempts, so
+  someone failing to sign in could lock out your API clients too.
+- **Keep the `Host` header.** A proxy that rewrites it can make browsers without `Sec-Fetch-Site` fail the cross-origin
+  check, which refuses their sign-in.
+- **Ending access.** Sessions live in memory. Remove the token's line from `tokens` and restart the API to end its
+  sessions; a restart ends all of them. A single session cannot be ended from elsewhere.
+- **An authenticating proxy in front is optional.** Tokens are random and failed attempts are limited. If you add one
+  for the whole address, API clients need an exception for `/api/` or their own credentials.
 
 ## Your data
 

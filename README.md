@@ -12,7 +12,8 @@ touching the files.
 
 > **Status:** early development. Tasks work today: create, edit, list and complete them, including repeating
 > tasks and projects, view today / overdue / waiting / completed, and use the command-line client. Notes work
-> too (org-roam): create, read and search them, and follow links and backlinks. Journal and capture come next.
+> too (org-roam): create, read and search them, and follow links and backlinks. An optional web interface covers
+> tasks from a browser. Journal and capture come next.
 > Expect breaking changes before 1.0.
 
 ## Quick start
@@ -38,7 +39,7 @@ organon task list
 
 ## Documentation
 
-- [Using Organon](docs/usage.md): the CLI, the HTTP API, dates and repeating tasks
+- [Using Organon](docs/usage.md): the CLI, the web interface, the HTTP API, dates and repeating tasks
 - [Running Organon](docs/deployment.md): settings, images, Podman, exposing it, your data and backups
 - [Architecture](docs/architecture.md) (Korean): design, security boundaries, time model, decisions
 - Contracts: behavior in [`openspec/specs/`](openspec/specs/), HTTP in [`api/openapi.yaml`](api/openapi.yaml)

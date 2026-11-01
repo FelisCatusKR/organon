@@ -1,0 +1,11 @@
+{{define "content"}}
+<h1>{{t .Lang "login.title"}}</h1>
+{{with .Content.Error}}<p class="notice" role="alert">{{t $.Lang .}}</p>{{end}}
+<form class="stack" method="post" action="/login">
+  <label>{{t .Lang "login.token"}}
+    <input type="password" name="token" required autofocus autocomplete="current-password">
+  </label>
+  <button class="primary">{{t .Lang "login.submit"}}</button>
+</form>
+<p class="muted">{{t .Lang "login.help"}}</p>
+{{end}}

@@ -45,6 +45,14 @@ type Server struct {
 	Version        string
 	Logger         *slog.Logger
 
+	// UI, when set, serves every path outside the API and the probes (the web
+	// interface, package web). Nil keeps the API-only behavior.
+	UI http.Handler
+
+	// routes holds the API's handlers once built; see apiRoutes.
+	routesOnce sync.Once
+	routes     http.Handler
+
 	// The last engine ping of /readyz, which needs no token: reusing it for a
 	// second keeps unauthenticated clients from queueing work on the engine.
 	healthMu     sync.Mutex
@@ -60,6 +68,27 @@ var healthCacheFor = time.Second
 
 // Handler returns the HTTP handler for the whole API.
 func (s *Server) Handler() http.Handler {
+	api := s.apiRoutes()
+	if s.UI == nil {
+		return s.logRequests(noStore(api))
+	}
+	// /api/v1 never reads cookies, so a browser session cannot reach it.
+	mux := http.NewServeMux()
+	for _, path := range []string{"/api/", "/livez", "/readyz", "/healthz"} {
+		mux.Handle(path, api)
+	}
+	mux.Handle("/", s.UI)
+	return s.logRequests(noStore(mux))
+}
+
+// apiRoutes returns the API's own routes, without logging: the outer handler
+// logs requests from outside, and in-process calls are part of a logged request.
+func (s *Server) apiRoutes() http.Handler {
+	s.routesOnce.Do(func() { s.routes = s.buildRoutes() })
+	return s.routes
+}
+
+func (s *Server) buildRoutes() http.Handler {
 	read, write := auth.ScopeRead, auth.ScopeTasksWrite
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", s.livez)
@@ -86,7 +115,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusNotFound, model.ProblemCodeNotFound, "no such endpoint", nil)
 	})
-	return s.logRequests(noStore(mux))
+	return mux
 }
 
 // noStore marks every response as private and not to be cached or sniffed:
@@ -103,9 +132,23 @@ func noStore(next http.Handler) http.Handler {
 
 type tokenKey struct{}
 
+// inProcessKey marks a request made through InProcess. The key is private to
+// this package and contexts do not travel over HTTP, so a client cannot set it.
+type inProcessKey struct{}
+
 func (s *Server) authorize(scope string, h http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		addr := s.clientAddr(r)
+		// Already authenticated by the caller (a web session): only the scope
+		// is left to check, and there is no failed attempt to count.
+		if tok, ok := r.Context().Value(inProcessKey{}).(*auth.Token); ok {
+			if !tok.Has(scope) {
+				writeProblem(w, http.StatusForbidden, model.ProblemCodeForbidden, "token lacks scope "+scope, nil)
+				return
+			}
+			h(w, r.WithContext(context.WithValue(r.Context(), tokenKey{}, tok)))
+			return
+		}
+		addr := s.ClientAddr(r)
 		if s.Limiter.Blocked(addr) {
 			writeProblem(w, http.StatusTooManyRequests, model.ProblemCodeRateLimited,
 				"too many failed authentication attempts; try again later", nil)
@@ -126,12 +169,12 @@ func (s *Server) authorize(scope string, h http.HandlerFunc) http.Handler {
 	})
 }
 
-// clientAddr is the key failed authentications are counted against. The
+// ClientAddr is the key failed authentications are counted against. The
 // configured header is trusted as set by the proxy in front of the API: for a
 // list (X-Forwarded-For, possibly over several header lines) the last entry is
 // the one that proxy appended. A value that is not an address (with or without
 // a port) is ignored and the TCP peer is used.
-func (s *Server) clientAddr(r *http.Request) string {
+func (s *Server) ClientAddr(r *http.Request) string {
 	if s.ClientIPHeader != "" {
 		if v := strings.Join(r.Header.Values(s.ClientIPHeader), ","); v != "" {
 			if addr, ok := parseAddr(v[strings.LastIndex(v, ",")+1:]); ok {
@@ -190,6 +233,50 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 		}
 	})
 }
+
+// ---- in-process calls -----------------------------------------------------------
+
+// InProcess returns a transport that runs requests through the API's own
+// handlers as tok, without a network hop. Validation, scope checks and error
+// mapping are the API's, so its caller can do only what tok could do over HTTP.
+func (s *Server) InProcess(tok *auth.Token) http.RoundTripper {
+	return inProcess{api: s.apiRoutes(), tok: tok}
+}
+
+type inProcess struct {
+	api http.Handler
+	tok *auth.Token
+}
+
+func (t inProcess) RoundTrip(req *http.Request) (*http.Response, error) {
+	r := req.Clone(context.WithValue(req.Context(), inProcessKey{}, t.tok))
+	if r.Body == nil {
+		r.Body = http.NoBody
+	}
+	w := &bufferedResponse{header: http.Header{}, status: http.StatusOK}
+	t.api.ServeHTTP(w, r)
+	return &http.Response{
+		Status:     http.StatusText(w.status),
+		StatusCode: w.status,
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Header:     w.header,
+		Body:       io.NopCloser(bytes.NewReader(w.body.Bytes())),
+		Request:    req,
+	}, nil
+}
+
+// bufferedResponse is an http.ResponseWriter that keeps the response in memory.
+type bufferedResponse struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
+}
+
+func (b *bufferedResponse) Header() http.Header         { return b.header }
+func (b *bufferedResponse) WriteHeader(status int)      { b.status = status }
+func (b *bufferedResponse) Write(p []byte) (int, error) { return b.body.Write(p) }
 
 // ---- responses ----------------------------------------------------------------
 

@@ -1,0 +1,39 @@
+{{define "content"}}
+{{with .Content.Notice}}<p class="notice" role="alert">{{t $.Lang .}}</p>{{end}}
+{{if .Content.CanWrite}}
+<form class="add" method="post" action="/tasks">
+  <input type="hidden" name="key" value="{{.Content.AddKey}}">
+  <input type="hidden" name="back" value="{{.Content.Back}}">
+  <label class="grow">{{t .Lang "add.title"}}<input name="title" required maxlength="500"></label>
+  <label>{{t .Lang "add.deadline"}}<input type="date" name="deadline"></label>
+  <button class="primary">{{t .Lang "add.submit"}}</button>
+</form>
+{{end}}
+{{if .Content.Tasks}}
+<ul class="tasks">
+  {{range .Content.Tasks}}
+  <li>
+    <div class="title">{{with .Priority}}<span class="priority">#{{.}}</span> {{end}}{{.Title}}</div>
+    <div class="meta">
+      <span class="state">{{.State}}</span>
+      {{with .AgendaKind}}<span class="kind">{{t $.Lang .}}</span>{{end}}
+      {{with .Scheduled}}<span>{{t $.Lang "task.scheduled"}} {{.Date}}{{with .Time}} {{.}}{{end}}{{with .Repeat}} {{.}}{{end}}</span>{{end}}
+      {{with .Deadline}}<span>{{t $.Lang "task.deadline"}} {{.Date}}{{with .Time}} {{.}}{{end}}{{with .Repeat}} {{.}}{{end}}</span>{{end}}
+      {{with .Project}}<span>{{.Title}}</span>{{end}}
+      {{range .Tags}}<span class="tag">:{{.}}:</span>{{end}}
+    </div>
+    {{if .Actions}}
+    <form class="actions" method="post">
+      <input type="hidden" name="expected_state" value="{{.State}}">
+      <input type="hidden" name="expected_version" value="{{.Version}}">
+      <input type="hidden" name="back" value="{{.Back}}">
+      {{$id := .ID}}{{range .Actions}}<button formaction="/tasks/{{$id}}/{{.}}">{{t $.Lang (printf "action.%s" .)}}</button>{{end}}
+    </form>
+    {{end}}
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="muted">{{t .Lang "empty.list"}}</p>
+{{end}}
+{{end}}

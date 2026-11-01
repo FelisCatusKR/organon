@@ -1,6 +1,6 @@
 # Organon 아키텍처
 
-- **상태**: MVP-A(task)와 task 편집·목록·프로젝트·CLI까지 구현, MVP-B(org-roam)는 설계 단계 (2026-10-03)
+- **상태**: MVP-A(task), task 편집·목록·프로젝트·CLI, MVP-B(org-roam), 태스크용 웹 UI까지 구현 (2026-11-01)
 - **한 줄 요약**: Emacs + Org-mode + org-roam을 headless 엔진으로 쓰고, 그 위에 내가 통제하는
   Personal API를 계약으로 둔다.
 
@@ -396,6 +396,12 @@ TODO ─▶ NEXT ─▶ DOING ─▶ DONE
 | Emacs 컨테이너 탈출 경로 | `Network=none`, read-only rootfs, `--cap-drop all`, rootless + `keep-id` |
 
 - 오픈소스 기본값: API는 `127.0.0.1`에 bind하고, 토큰 없이는 어떤 endpoint도 응답하지 않는다(probe인 `/livez`, `/readyz`, `/healthz` 제외. 이들은 상태만 알려 준다).
+- 웹 UI(`ORGANON_WEB_ENABLED=true`일 때만)는 이 경계의 예외로 로그인 페이지와 정적 파일을 토큰 없이 보여 준다.
+  로그인은 토큰을 세션 쿠키로 교환하며, API와 같은 실패 rate limit을 쓴다. 세션은 프로세스 메모리에 ID의 해시만 두고
+  원본 토큰은 보관하지 않는다. 쿠키는 `HttpOnly`, `SameSite=Strict`, `Secure`이고, 다른 origin의 쓰기 요청은
+  `http.CrossOriginProtection`이 거부한다. 페이지에는 JavaScript가 없고 CSP도 스크립트를 허용하지 않는다.
+  UI는 API 핸들러를 프로세스 안에서 호출하므로(`Server.InProcess`) 토큰 scope를 넘는 일을 할 수 없고, `/api/v1`은
+  쿠키를 읽지 않으므로 bearer 토큰만 받는다.
 - TLS는 앞단(reverse proxy나 터널: Caddy, Cloudflare Tunnel, Tailscale 등)에서 종료한다. 프록시 뒤에서는
   `ORGANON_CLIENT_IP_HEADER`로 실제 클라이언트 주소를 받아 실패 rate limit에 쓴다.
 

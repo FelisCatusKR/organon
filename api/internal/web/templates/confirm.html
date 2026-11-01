@@ -1,0 +1,13 @@
+{{define "content"}}
+<h1>{{t .Lang "confirm.title"}}</h1>
+<p class="title">{{.Content.Title}}</p>
+<p>{{t .Lang .Content.Message}}</p>
+<form class="actions" method="post" action="/tasks/{{.Content.ID}}/{{.Content.Action}}">
+  <input type="hidden" name="expected_state" value="{{.Content.State}}">
+  <input type="hidden" name="expected_version" value="{{.Content.Version}}">
+  <input type="hidden" name="back" value="{{.Content.Back}}">
+  <input type="hidden" name="confirmed" value="1">
+  <button class="primary">{{t .Lang "confirm.yes"}}</button>
+  <a class="button" href="{{.Content.Back}}">{{t .Lang "confirm.no"}}</a>
+</form>
+{{end}}

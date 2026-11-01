@@ -66,6 +66,10 @@ func OutcomeUnknown(err error) bool {
 // Do sends a request and decodes a successful JSON response into out (if
 // non-nil). It returns the raw response body in every case it has one.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body, out any) ([]byte, error) {
+	return c.do(ctx, method, path, query, nil, body, out)
+}
+
+func (c *Client) do(ctx context.Context, method, path string, query url.Values, headers map[string]string, body, out any) ([]byte, error) {
 	var payload io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -86,6 +90,9 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for name, value := range headers {
+		req.Header.Set(name, value)
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -158,6 +165,14 @@ func (c *Client) GetTask(ctx context.Context, id string) (model.Task, []byte, er
 func (c *Client) CreateTask(ctx context.Context, req model.CreateTask) (model.Task, []byte, error) {
 	var task model.Task
 	raw, err := c.Do(ctx, http.MethodPost, "/tasks", nil, req, &task)
+	return task, raw, err
+}
+
+// CreateTaskOnce creates a task under an Idempotency-Key: repeating the call
+// with the same key returns the first task instead of creating another.
+func (c *Client) CreateTaskOnce(ctx context.Context, req model.CreateTask, key string) (model.Task, []byte, error) {
+	var task model.Task
+	raw, err := c.do(ctx, http.MethodPost, "/tasks", nil, map[string]string{"Idempotency-Key": key}, req, &task)
 	return task, raw, err
 }
 

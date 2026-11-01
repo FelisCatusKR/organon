@@ -1,0 +1,5 @@
+{{define "content"}}
+<h1>{{t .Lang "error.title"}}</h1>
+<p>{{t .Lang .Content.Message}}</p>
+{{if .SignedIn}}<p><a href="/">{{t .Lang "error.home"}}</a></p>{{end}}
+{{end}}

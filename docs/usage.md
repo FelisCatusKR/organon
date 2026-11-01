@@ -1,7 +1,7 @@
 # Using Organon
 
-Organon is used through its HTTP API. The `organon` command-line client covers everyday use. The HTTP API
-itself is described here briefly and fully in [`api/openapi.yaml`](../api/openapi.yaml). To set up an
+Organon is used through its HTTP API. The `organon` command-line client covers everyday use, and an optional
+[web interface](#the-web-interface) works from a phone. The HTTP API itself is described here briefly and fully in [`api/openapi.yaml`](../api/openapi.yaml). To set up an
 instance, see [deployment.md](deployment.md).
 
 ## The CLI
@@ -55,6 +55,25 @@ to print the API's response unchanged.
 If a change fails because the server did not answer, the CLI does not retry. Check with
 `organon task show ID` first: re-running a completion that already went through would move a repeating
 task twice.
+
+## The web interface
+
+Turn it on with `ORGANON_WEB_ENABLED=true` (see [deployment.md](deployment.md#the-web-interface)), then open the
+instance's address in a browser and sign in with an API token. A separate token keeps the browser's access
+apart from your other clients:
+
+```sh
+organon token new --name web --scopes read,tasks:write
+```
+
+- **Today**, **Tasks** (all open tasks) and **Waiting** list your tasks. A task without a date appears only under
+  **Tasks**.
+- Start, complete and skip from the list. Completing or skipping a repeating task asks first, because it moves the
+  dates and the interface cannot undo that.
+- Quick add takes a title and an optional deadline, and creates a `TODO`.
+- The language follows your browser (English or Korean) until you change it with the switch at the top.
+
+A session lasts 30 days and ends when you sign out or the service restarts.
 
 ## The HTTP API
 

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{t .Lang "app.name"}}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <strong class="brand">{{t .Lang "app.name"}}</strong>
+  <form class="inline" method="post" action="/language">
+    <input type="hidden" name="back" value="{{.Path}}">
+    {{range .Langs}}{{if ne . $.Lang}}<button class="link" name="lang" value="{{.}}" lang="{{.}}">{{if eq . "ko"}}한국어{{else}}English{{end}}</button>{{end}}{{end}}
+  </form>
+  {{if .SignedIn}}<form class="inline" method="post" action="/logout"><button class="link">{{t .Lang "nav.logout"}}</button></form>{{end}}
+</header>
+{{if .SignedIn}}
+<nav>
+  <a href="/"{{if eq .Tab "/"}} aria-current="page"{{end}}>{{t .Lang "nav.today"}}</a>
+  <a href="/tasks"{{if eq .Tab "/tasks"}} aria-current="page"{{end}}>{{t .Lang "nav.tasks"}}</a>
+  <a href="/waiting"{{if eq .Tab "/waiting"}} aria-current="page"{{end}}>{{t .Lang "nav.waiting"}}</a>
+</nav>
+{{end}}
+<main>{{template "content" .}}</main>
+</body>
+</html>
